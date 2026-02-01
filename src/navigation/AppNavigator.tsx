@@ -5,9 +5,10 @@ import { Ionicons } from '@expo/vector-icons';
 
 // Import Screens
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
-import TrackerScreen from '../screens/tracker/TrackerScreen'; 
+import TrackerScreen from '../screens/tracker/TrackerScreen';
+import ReportsScreen from '../screens/reports/ReportsScreen'; // <--- NEW IMPORT
 
-// Temporary Placeholder for Vault (We will build this later)
+// We still have one placeholder left for the Vault (Feature 4)
 const VaultPlaceholder = () => (
   <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
     <Text>Document Vault (Coming Soon)</Text>
@@ -20,17 +21,19 @@ export default function AppNavigator() {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
-        headerShown: false, // We hide the default header to use our own
+        headerShown: false,
         tabBarActiveTintColor: '#2f95dc',
         tabBarInactiveTintColor: 'gray',
-        // Dynamic Icon Logic
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: keyof typeof Ionicons.glyphMap = 'home';
 
           if (route.name === 'Dashboard') {
-            iconName = focused ? 'home' : 'home-outline';
+            // Dashboard is now the "Daily Tasks" view
+            iconName = focused ? 'checkbox' : 'checkbox-outline';
           } else if (route.name === 'Tracker') {
             iconName = focused ? 'wallet' : 'wallet-outline';
+          } else if (route.name === 'Reports') {
+            iconName = focused ? 'bar-chart' : 'bar-chart-outline';
           } else if (route.name === 'Vault') {
             iconName = focused ? 'folder-open' : 'folder-open-outline';
           }
@@ -41,6 +44,7 @@ export default function AppNavigator() {
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Tracker" component={TrackerScreen} />
+      <Tab.Screen name="Reports" component={ReportsScreen} />
       <Tab.Screen name="Vault" component={VaultPlaceholder} />
     </Tab.Navigator>
   );
