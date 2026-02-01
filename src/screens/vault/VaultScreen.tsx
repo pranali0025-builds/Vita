@@ -43,12 +43,10 @@ export default function VaultScreen() {
   };
 
   const pickImage = async () => {
-    // Request permission (optional on some OS versions but good practice)
-    // No explicit permission request needed for launchImageLibraryAsync in modern Expo Go
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
-      quality: 0.5, // Compress image to save space
+      quality: 0.5,
     });
 
     if (!result.canceled) {
@@ -61,7 +59,6 @@ export default function VaultScreen() {
       return Alert.alert("Missing Info", "Please provide a title and select an image.");
     }
     try {
-      // For expiry, we accept empty string if user leaves it blank
       await addDocument(title, category, imageUri, expiry || null);
       setModalVisible(false);
       resetForm();
@@ -152,6 +149,7 @@ export default function VaultScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Add Document</Text>
+            <Text style={styles.digitalNote}>* Works only on digital documents (Images)</Text>
 
             {/* Image Picker */}
             <TouchableOpacity style={styles.imagePicker} onPress={pickImage}>
@@ -220,7 +218,9 @@ const styles = StyleSheet.create({
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { width: '85%', backgroundColor: '#fff', borderRadius: 16, padding: 25, elevation: 5 },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
+  modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 5, textAlign: 'center' },
+  digitalNote: { fontSize: 12, color: '#888', textAlign: 'center', marginBottom: 15, fontStyle: 'italic' },
+  
   imagePicker: { height: 150, backgroundColor: '#f0f0f0', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 15, overflow: 'hidden' },
   input: { borderWidth: 1, borderColor: '#eee', borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 15, backgroundColor: '#fafafa' },
   label: { fontSize: 12, color: '#888', marginBottom: 8, fontWeight: '600' },
