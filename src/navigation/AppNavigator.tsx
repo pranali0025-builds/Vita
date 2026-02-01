@@ -1,19 +1,12 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 // Import Screens
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
 import TrackerScreen from '../screens/tracker/TrackerScreen';
-import ReportsScreen from '../screens/reports/ReportsScreen'; // <--- NEW IMPORT
-
-// We still have one placeholder left for the Vault (Feature 4)
-const VaultPlaceholder = () => (
-  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-    <Text>Document Vault (Coming Soon)</Text>
-  </View>
-);
+import ReportsScreen from '../screens/reports/ReportsScreen';
+import VaultScreen from '../screens/vault/VaultScreen'; // <--- NEW IMPORT
 
 const Tab = createBottomTabNavigator();
 
@@ -28,7 +21,6 @@ export default function AppNavigator() {
           let iconName: keyof typeof Ionicons.glyphMap = 'home';
 
           if (route.name === 'Dashboard') {
-            // Dashboard is now the "Daily Tasks" view
             iconName = focused ? 'checkbox' : 'checkbox-outline';
           } else if (route.name === 'Tracker') {
             iconName = focused ? 'wallet' : 'wallet-outline';
@@ -45,7 +37,7 @@ export default function AppNavigator() {
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Tracker" component={TrackerScreen} />
       <Tab.Screen name="Reports" component={ReportsScreen} />
-      <Tab.Screen name="Vault" component={VaultPlaceholder} />
+      <Tab.Screen name="Vault" component={VaultScreen} /> 
     </Tab.Navigator>
   );
 }

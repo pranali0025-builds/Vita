@@ -3,26 +3,106 @@ import * as SQLite from 'expo-sqlite';
 let db: SQLite.SQLiteDatabase | null = null;
 
 // --- 1. DATA MODELS ---
-export interface Expense { id: number; amount: number; category: string; date: string; note: string; payment_type: string; }
-export interface Subscription { id: number; name: string; amount: number; billing_cycle: 'Monthly' | 'Yearly'; next_billing_date: string; category: string; is_active: number; }
-export interface CategoryStat { category: string; total: number; percentage: number; }
-export interface FinancialReport { summary: string; status: 'Stable' | 'Warning' | 'Critical'; insights: string[]; }
-export interface Task { id: number; title: string; is_completed: number; priority: 'Low' | 'Medium' | 'High'; estimated_effort: number; category: 'Work' | 'Personal' | 'Admin'; date: string; }
-export interface DailyLoad { totalEffort: number; completedEffort: number; taskCount: number; loadLevel: 'Light' | 'Normal' | 'Heavy'; completionRate: number; statusMessage: string; }
-export interface LoadPoint { date: string; effort: number; label: string; }
-export interface StabilityMetrics { score: number; label: 'Excellent' | 'Good' | 'Fair' | 'Unstable'; moneyScore: number; taskScore: number; }
+
+export interface Expense {
+  id: number;
+  amount: number;
+  category: string;
+  date: string;
+  note: string;
+  payment_type: string;
+}
+
+export interface Subscription {
+  id: number;
+  name: string;
+  amount: number;
+  billing_cycle: 'Monthly' | 'Yearly';
+  next_billing_date: string;
+  category: string;
+  is_active: number;
+}
+
+export interface CategoryStat {
+  category: string;
+  total: number;
+  percentage: number;
+}
+
+export interface FinancialReport {
+  summary: string;
+  status: 'Stable' | 'Warning' | 'Critical';
+  insights: string[];
+}
+
+// --- TASK MODELS ---
+export interface Task {
+  id: number;
+  title: string;
+  is_completed: number;
+  priority: 'Low' | 'Medium' | 'High';
+  estimated_effort: number;
+  category: 'Work' | 'Personal' | 'Admin';
+  date: string;
+}
+
+export interface DailyLoad {
+  totalEffort: number;
+  completedEffort: number;
+  taskCount: number;
+  loadLevel: 'Light' | 'Normal' | 'Heavy';
+  completionRate: number;
+  statusMessage: string;
+}
+
+export interface LoadPoint {
+  date: string;
+  effort: number;
+  label: string;
+}
+
+export interface StabilityMetrics {
+  score: number;
+  label: 'Excellent' | 'Good' | 'Fair' | 'Unstable';
+  moneyScore: number;
+  taskScore: number;
+}
+
+// --- DOCUMENT MODELS (Feature 4) ---
+export interface Document {
+  id: number;
+  title: string;
+  category: 'Identity' | 'Education' | 'Work' | 'Finance' | 'Other';
+  uri: string; // Local file path
+  expiry_date?: string; // YYYY-MM-DD
+  is_important: number;
+}
+
+export interface PreparednessReport {
+  score: number; // 0-100
+  missingEssentials: string[]; // ["Aadhaar", "Resume"]
+  expiredCount: number;
+  expiringSoonCount: number;
+}
 
 // --- 2. INITIALIZATION ---
+
 export const initDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
   try {
     if (db) return db;
+
     db = await SQLite.openDatabaseAsync('vita.db');
     await db.runAsync('PRAGMA journal_mode = WAL;', []);
+
     await db.runAsync(`CREATE TABLE IF NOT EXISTS user_profile (id INTEGER PRIMARY KEY NOT NULL, name TEXT, monthly_salary REAL DEFAULT 0, setup_completed INTEGER DEFAULT 0);`, []);
     await db.runAsync(`CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, amount REAL NOT NULL, category TEXT NOT NULL, date TEXT NOT NULL, note TEXT, payment_type TEXT DEFAULT 'UPI');`, []);
     await db.runAsync(`CREATE TABLE IF NOT EXISTS subscriptions (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, amount REAL NOT NULL, billing_cycle TEXT DEFAULT 'Monthly', next_billing_date TEXT, category TEXT, is_active INTEGER DEFAULT 1);`, []);
     await db.runAsync(`CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, is_completed INTEGER DEFAULT 0, type TEXT, date TEXT, priority TEXT DEFAULT 'Medium', estimated_effort INTEGER DEFAULT 30, category TEXT DEFAULT 'Work');`, []);
     await db.runAsync(`CREATE TABLE IF NOT EXISTS daily_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, energy_level INTEGER, date TEXT);`, []);
+    
+    // NEW DOCUMENT TABLE
+    await db.runAsync(`CREATE TABLE IF NOT EXISTS documents (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, category TEXT, uri TEXT, expiry_date TEXT, is_important INTEGER DEFAULT 0);`, []);
+
     // Migrations
     try { await db.runAsync("ALTER TABLE expenses ADD COLUMN note TEXT;", []); } catch (e) {}
     try { await db.runAsync("ALTER TABLE expenses ADD COLUMN payment_type TEXT DEFAULT 'UPI';", []); } catch (e) {}
@@ -30,13 +110,22 @@ export const initDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
     try { await db.runAsync("ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'Medium';", []); } catch (e) {}
     try { await db.runAsync("ALTER TABLE tasks ADD COLUMN estimated_effort INTEGER DEFAULT 30;", []); } catch (e) {}
     try { await db.runAsync("ALTER TABLE tasks ADD COLUMN category TEXT DEFAULT 'Work';", []); } catch (e) {}
+
     console.log("Database initialized & Migrated");
     return db;
-  } catch (error) { console.error("DB Init Error:", error); throw error; }
+  } catch (error) {
+    console.error("DB Init Error:", error);
+    throw error;
+  }
 };
-const getDB = async (): Promise<SQLite.SQLiteDatabase> => { if (db) return db; return await initDatabase(); };
+
+const getDB = async (): Promise<SQLite.SQLiteDatabase> => {
+  if (db) return db;
+  return await initDatabase();
+};
 
 // --- 3. MONEY FUNCTIONS ---
+
 export const addExpense = async (amount: number, category: string, date: string, note: string, paymentType: string) => { const database = await getDB(); await database.runAsync(`INSERT INTO expenses (amount, category, date, note, payment_type) VALUES (?, ?, ?, ?, ?)`, [amount, category, date, note, paymentType]); };
 export const getExpensesByMonth = async (monthStr: string) => { const database = await getDB(); return await database.getAllAsync<Expense>(`SELECT * FROM expenses WHERE date LIKE ? ORDER BY date DESC`, [`${monthStr}%`]); };
 export const deleteExpense = async (id: number) => { const database = await getDB(); await database.runAsync('DELETE FROM expenses WHERE id = ?', [id]); };
@@ -57,12 +146,11 @@ export const getFinancialReport = async (monthStr: string): Promise<FinancialRep
 };
 
 // --- 4. TASK FUNCTIONS ---
+
 export const addTask = async (title: string, priority: string, effort: number, category: string, date: string) => { const database = await getDB(); await database.runAsync(`INSERT INTO tasks (title, priority, estimated_effort, category, date, is_completed) VALUES (?, ?, ?, ?, ?, 0)`, [title, priority, effort, category, date]); };
 export const getTasksByDate = async (date: string): Promise<Task[]> => { const database = await getDB(); return await database.getAllAsync<Task>(`SELECT * FROM tasks WHERE date = ? ORDER BY is_completed ASC, priority DESC`, [date]); };
 export const toggleTaskCompletion = async (id: number, currentStatus: number) => { const database = await getDB(); const newStatus = currentStatus === 1 ? 0 : 1; await database.runAsync('UPDATE tasks SET is_completed = ? WHERE id = ?', [newStatus, id]); };
 export const deleteTask = async (id: number) => { const database = await getDB(); await database.runAsync('DELETE FROM tasks WHERE id = ?', [id]); };
-
-// --- 5. DAILY LOAD LOGIC ---
 export const getDailyLoad = async (date: string): Promise<DailyLoad> => {
   const tasks = await getTasksByDate(date);
   const totalEffort = tasks.reduce((sum, t) => sum + t.estimated_effort, 0);
@@ -73,7 +161,65 @@ export const getDailyLoad = async (date: string): Promise<DailyLoad> => {
   return { totalEffort, completedEffort, taskCount: tasks.length, loadLevel, completionRate, statusMessage };
 };
 
-// --- 6. AGGREGATION & REPORTING (Feature 3 Logic) ---
+// --- 5. DOCUMENT FUNCTIONS (Feature 4) ---
+
+export const addDocument = async (title: string, category: string, uri: string, expiry: string | null) => {
+  const database = await getDB();
+  await database.runAsync(
+    `INSERT INTO documents (title, category, uri, expiry_date, is_important) VALUES (?, ?, ?, ?, 0)`,
+    [title, category, uri, expiry]
+  );
+};
+
+export const getDocuments = async (): Promise<Document[]> => {
+  const database = await getDB();
+  return await database.getAllAsync<Document>(`SELECT * FROM documents ORDER BY category ASC`, []);
+};
+
+export const deleteDocument = async (id: number) => {
+  const database = await getDB();
+  await database.runAsync('DELETE FROM documents WHERE id = ?', [id]);
+};
+
+// AI HOOK: Preparedness Score
+export const calculatePreparednessScore = async (): Promise<PreparednessReport> => {
+  const docs = await getDocuments();
+  const essentials = ['Identity', 'Finance', 'Education', 'Work'];
+  const missing: string[] = [];
+  
+  // Check category coverage
+  essentials.forEach(cat => {
+    if (!docs.some(d => d.category === cat)) {
+      missing.push(cat);
+    }
+  });
+
+  // Calculate Score (Simple: Coverage %)
+  const score = Math.round(((essentials.length - missing.length) / essentials.length) * 100);
+
+  // Check Expiry
+  const today = new Date().toISOString().slice(0, 10);
+  let expiredCount = 0;
+  let expiringSoonCount = 0;
+
+  docs.forEach(d => {
+    if (d.expiry_date) {
+      if (d.expiry_date < today) expiredCount++;
+      else {
+        // Check if within 30 days
+        const exp = new Date(d.expiry_date);
+        const now = new Date();
+        const diffTime = Math.abs(exp.getTime() - now.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        if (diffDays <= 30) expiringSoonCount++;
+      }
+    }
+  });
+
+  return { score, missingEssentials: missing, expiredCount, expiringSoonCount };
+};
+
+// --- 6. REPORTING ---
 
 export const getLoadHistory = async (days: number = 7): Promise<LoadPoint[]> => {
   const history: LoadPoint[] = [];
@@ -86,33 +232,23 @@ export const getLoadHistory = async (days: number = 7): Promise<LoadPoint[]> => 
   return history;
 };
 
-// UPDATED: Now returns Average Completion Rate
 export const getWeeklyTaskStats = async () => {
   const database = await getDB();
-  let heavyDays = 0;
-  let totalMinutes = 0;
-  let daysWithData = 0;
-  let totalCompletionSum = 0; // Sum of daily completion rates
-
+  let heavyDays = 0; let totalMinutes = 0; let daysWithData = 0; let totalCompletionSum = 0;
   for (let i = 0; i < 7; i++) {
     const d = new Date(); d.setDate(d.getDate() - i); const dateStr = d.toISOString().slice(0, 10);
     const tasks = await getTasksByDate(dateStr);
-    
     if (tasks.length > 0) {
       daysWithData++;
       const effort = tasks.reduce((sum, t) => sum + t.estimated_effort, 0);
       totalMinutes += effort;
       if (effort > 300) heavyDays++;
-
-      // Calculate daily completion %
       const completedCount = tasks.filter(t => t.is_completed).length;
       totalCompletionSum += (completedCount / tasks.length);
     }
   }
-
   const avgLoad = daysWithData > 0 ? Math.round(totalMinutes / daysWithData) : 0;
   const avgCompletionRate = daysWithData > 0 ? Math.round((totalCompletionSum / daysWithData) * 100) : 0;
-  
   return { heavyDays, avgLoad, daysWithData, avgCompletionRate };
 };
 
@@ -154,4 +290,5 @@ export const calculateStabilityScore = async (): Promise<StabilityMetrics> => {
   return { score: totalScore, label, moneyScore, taskScore };
 };
 
-export const clearAllData = async () => { const database = await getDB(); await database.execAsync(`DELETE FROM expenses; DELETE FROM subscriptions; DELETE FROM user_profile; DELETE FROM tasks;`); };
+// --- RESET ---
+export const clearAllData = async () => { const database = await getDB(); await database.execAsync(`DELETE FROM expenses; DELETE FROM subscriptions; DELETE FROM user_profile; DELETE FROM tasks; DELETE FROM documents;`); };
