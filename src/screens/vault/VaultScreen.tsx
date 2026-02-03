@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Modal, TextInput, ScrollView, Alert, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Modal, TextInput, ScrollView, Alert, RefreshControl, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
@@ -9,6 +9,8 @@ import {
 } from '../../services/database';
 
 const CATEGORIES = ['Identity', 'Education', 'Work', 'Finance', 'Other'];
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 export default function VaultScreen() {
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -17,6 +19,9 @@ export default function VaultScreen() {
 
   // Modal State
   const [modalVisible, setModalVisible] = useState(false);
+  const [viewerVisible, setViewerVisible] = useState(false); // <--- NEW: Viewer Visibility
+  const [selectedDoc, setSelectedDoc] = useState<Document | null>(null); // <--- NEW: Selected Doc for viewing
+  
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('Identity');
   const [expiry, setExpiry] = useState(''); // YYYY-MM-DD
@@ -46,7 +51,7 @@ export default function VaultScreen() {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
-      quality: 0.5,
+      quality: 0.8, // Better quality for viewing
     });
 
     if (!result.canceled) {
@@ -82,8 +87,18 @@ export default function VaultScreen() {
     setTitle(''); setCategory('Identity'); setExpiry(''); setImageUri(null);
   };
 
+  // --- NEW: OPEN VIEWER ---
+  const openViewer = (doc: Document) => {
+    setSelectedDoc(doc);
+    setViewerVisible(true);
+  };
+
   const renderDoc = ({ item }: { item: Document }) => (
-    <TouchableOpacity style={styles.card} onLongPress={() => handleDelete(item.id)}>
+    <TouchableOpacity 
+      style={styles.card} 
+      onPress={() => openViewer(item)} // <--- NEW: Tap to view
+      onLongPress={() => handleDelete(item.id)}
+    >
       <Image source={{ uri: item.uri }} style={styles.thumbnail} />
       <View style={styles.cardContent}>
         <Text style={styles.cardTitle}>{item.title}</Text>
@@ -94,7 +109,7 @@ export default function VaultScreen() {
           <Text style={[styles.expiry, { color: '#27ae60' }]}>No Expiry</Text>
         )}
       </View>
-      <Ionicons name="ellipsis-vertical" size={20} color="#ccc" />
+      <Ionicons name="eye-outline" size={20} color="#2f95dc" />
     </TouchableOpacity>
   );
 
@@ -144,7 +159,7 @@ export default function VaultScreen() {
         <Ionicons name="add" size={30} color="#fff" />
       </TouchableOpacity>
 
-      {/* 4. MODAL */}
+      {/* 4. ADD DOCUMENT MODAL */}
       <Modal visible={modalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -183,6 +198,24 @@ export default function VaultScreen() {
               <TouchableOpacity onPress={handleSave} style={styles.btnSave}><Text style={{color:'#fff'}}>Secure Save</Text></TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      {/* 5. FULL SCREEN IMAGE VIEWER MODAL (NEW) */}
+      <Modal visible={viewerVisible} animationType="fade" onRequestClose={() => setViewerVisible(false)}>
+        <View style={styles.viewerContainer}>
+          <TouchableOpacity style={styles.closeBtn} onPress={() => setViewerVisible(false)}>
+            <Ionicons name="close" size={30} color="#fff" />
+          </TouchableOpacity>
+          {selectedDoc && (
+            <>
+              <Image source={{ uri: selectedDoc.uri }} style={styles.fullImage} resizeMode="contain" />
+              <View style={styles.viewerFooter}>
+                <Text style={styles.viewerTitle}>{selectedDoc.title}</Text>
+                <Text style={styles.viewerSub}>{selectedDoc.category} • {selectedDoc.expiry_date || 'No Expiry'}</Text>
+              </View>
+            </>
+          )}
         </View>
       </Modal>
     </View>
@@ -232,4 +265,12 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 10, marginTop: 10 },
   btnCancel: { padding: 10, flex: 1, alignItems: 'center' },
   btnSave: { backgroundColor: '#2f95dc', padding: 10, borderRadius: 8, flex: 1, alignItems: 'center' },
+
+  // FULL SCREEN VIEWER STYLES
+  viewerContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center' },
+  fullImage: { width: SCREEN_WIDTH, height: SCREEN_HEIGHT * 0.7 },
+  closeBtn: { position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 10 },
+  viewerFooter: { position: 'absolute', bottom: 50, left: 0, right: 0, alignItems: 'center' },
+  viewerTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold', marginBottom: 5 },
+  viewerSub: { color: '#ccc', fontSize: 14 },
 });

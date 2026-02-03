@@ -8,11 +8,13 @@ import {
 } from '../../services/database';
 
 const CATEGORIES = ['Career', 'Personal', 'Health', 'Finance'];
+const FILTER_CATS = ['All', ...CATEGORIES];
 
 export default function GoalsScreen() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [risks, setRisks] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [activeFilter, setActiveFilter] = useState('All'); // <--- NEW FILTER STATE
 
   // Add Modal State
   const [modalVisible, setModalVisible] = useState(false);
@@ -120,6 +122,11 @@ export default function GoalsScreen() {
     </TouchableOpacity>
   );
 
+  // FILTER LOGIC
+  const filteredGoals = activeFilter === 'All' 
+    ? goals 
+    : goals.filter(g => g.category === activeFilter);
+
   return (
     <View style={styles.container}>
       <Text style={styles.header}>Goals & Targets</Text>
@@ -136,17 +143,32 @@ export default function GoalsScreen() {
         </View>
       )}
 
+      {/* CATEGORY FILTER (NEW) */}
+      <View style={{height: 50, marginBottom: 10}}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+          {FILTER_CATS.map(cat => (
+            <TouchableOpacity 
+              key={cat} 
+              style={[styles.filterChip, activeFilter === cat && styles.filterChipActive]}
+              onPress={() => setActiveFilter(cat)}
+            >
+              <Text style={[styles.filterText, activeFilter === cat && styles.filterTextActive]}>{cat}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
       <FlatList 
-        data={goals}
+        data={filteredGoals}
         renderItem={renderGoal}
         keyExtractor={i => i.id.toString()}
-        contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={loadData} />}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Ionicons name="flag-outline" size={48} color="#ccc" />
-            <Text style={styles.emptyText}>No goals set.</Text>
-            <Text style={styles.emptySub}>Add a target to stay focused.</Text>
+            <Text style={styles.emptyText}>No goals found.</Text>
+            <Text style={styles.emptySub}>Adjust filter or add a new goal.</Text>
           </View>
         }
       />
@@ -160,10 +182,8 @@ export default function GoalsScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>New Goal</Text>
-            
             <Text style={styles.label}>Goal Title</Text>
             <TextInput style={styles.input} placeholder="e.g. Save 1 Lakh" value={title} onChangeText={setTitle} />
-
             <Text style={styles.label}>Category</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
               {CATEGORIES.map(c => (
@@ -172,10 +192,8 @@ export default function GoalsScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-
             <Text style={styles.label}>Target Date (YYYY-MM-DD)</Text>
             <TextInput style={styles.input} placeholder="2024-12-31" value={targetDate} onChangeText={setTargetDate} />
-
             <View style={styles.row}>
               <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.btnCancel}><Text style={{color: 'red'}}>Cancel</Text></TouchableOpacity>
               <TouchableOpacity onPress={handleAddGoal} style={styles.btnSave}><Text style={{color:'#fff'}}>Set Goal</Text></TouchableOpacity>
@@ -190,13 +208,7 @@ export default function GoalsScreen() {
           <View style={styles.modalContentSmall}>
             <Text style={styles.modalTitle}>Update Progress</Text>
             <Text style={{marginBottom: 10, color: '#666'}}>Enter new percentage (0-100):</Text>
-            <TextInput 
-              style={[styles.input, {textAlign: 'center', fontSize: 24}]} 
-              placeholder="50" 
-              keyboardType="numeric"
-              value={newProgress} 
-              onChangeText={setNewProgress} 
-            />
+            <TextInput style={[styles.input, {textAlign: 'center', fontSize: 24}]} placeholder="50" keyboardType="numeric" value={newProgress} onChangeText={setNewProgress} />
             <View style={styles.row}>
               <TouchableOpacity onPress={() => setProgressModalVisible(false)} style={styles.btnCancel}><Text>Cancel</Text></TouchableOpacity>
               <TouchableOpacity onPress={handleUpdateProgress} style={styles.btnSave}><Text style={{color:'#fff'}}>Update</Text></TouchableOpacity>
@@ -204,7 +216,6 @@ export default function GoalsScreen() {
           </View>
         </View>
       </Modal>
-
     </View>
   );
 }
@@ -212,30 +223,24 @@ export default function GoalsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f7fa', paddingTop: 50 },
   header: { fontSize: 24, fontWeight: 'bold', marginHorizontal: 20, marginBottom: 15 },
-
   riskBox: { backgroundColor: '#fdedec', marginHorizontal: 20, marginBottom: 15, padding: 10, borderRadius: 8, borderLeftWidth: 4, borderLeftColor: '#c0392b' },
   riskRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
   riskText: { color: '#c0392b', marginLeft: 8, fontSize: 12, fontWeight: '600' },
-
   card: { backgroundColor: '#fff', padding: 15, borderRadius: 12, marginBottom: 15, elevation: 2 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   cardTitle: { fontSize: 16, fontWeight: 'bold', color: '#333' },
   cardCategory: { fontSize: 12, color: '#888', backgroundColor: '#f0f0f0', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
   targetDate: { fontSize: 12, color: '#aaa', marginBottom: 10 },
-  
   progressContainer: { height: 8, backgroundColor: '#eee', borderRadius: 4, overflow: 'hidden', marginBottom: 5 },
   progressBar: { height: '100%', borderRadius: 4 },
   progressTextRow: { flexDirection: 'row', justifyContent: 'space-between' },
   progressText: { fontSize: 12, fontWeight: 'bold', color: '#2f95dc' },
   statusText: { fontSize: 10, color: '#999' },
-
   empty: { alignItems: 'center', marginTop: 50 },
   emptyText: { fontSize: 18, fontWeight: 'bold', color: '#aaa', marginTop: 10 },
   emptySub: { fontSize: 14, color: '#ccc' },
-
   fab: { position: 'absolute', bottom: 20, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: '#2f95dc', justifyContent: 'center', alignItems: 'center', elevation: 5 },
-
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { width: '85%', backgroundColor: '#fff', borderRadius: 16, padding: 25, elevation: 5 },
   modalContentSmall: { width: '70%', backgroundColor: '#fff', borderRadius: 16, padding: 20, elevation: 5, alignItems: 'center' },
@@ -250,4 +255,11 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 10, marginTop: 10, width: '100%' },
   btnCancel: { padding: 10, flex: 1, alignItems: 'center' },
   btnSave: { backgroundColor: '#2f95dc', padding: 10, borderRadius: 8, flex: 1, alignItems: 'center' },
+  
+  // NEW FILTER STYLES
+  filterScroll: { paddingHorizontal: 20 },
+  filterChip: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, backgroundColor: '#fff', marginRight: 10, borderWidth: 1, borderColor: '#eee' },
+  filterChipActive: { backgroundColor: '#2f95dc', borderColor: '#2f95dc' },
+  filterText: { fontSize: 12, color: '#555' },
+  filterTextActive: { color: '#fff', fontWeight: 'bold' },
 });
