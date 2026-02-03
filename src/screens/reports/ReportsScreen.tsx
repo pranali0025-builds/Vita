@@ -1,29 +1,31 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, RefreshControl, Alert } from 'react-native';
 import { BarChart, PieChart } from 'react-native-gifted-charts';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { 
   getLoadHistory, calculateStabilityScore, getCategoryStats, getFinancialReport, 
   detectBurnoutLoop, getWeeklyTaskStats, 
+  getPremiumStatus, setPremiumStatus, seedDemoData, 
   StabilityMetrics, LoadPoint, CategoryStat 
 } from '../../services/database';
+import { detectMoneyLeaks, LeakReport } from '../../services/ai/moneyLeak'; 
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function ReportsScreen() {
   const [activeTab, setActiveTab] = useState<'Weekly' | 'Monthly'>('Weekly');
   const [loading, setLoading] = useState(false);
+  const [isPremium, setIsPremium] = useState(false);
   
   // Data State
   const [loadHistory, setLoadHistory] = useState<LoadPoint[]>([]);
   const [stability, setStability] = useState<StabilityMetrics | null>(null);
   const [catStats, setCatStats] = useState<CategoryStat[]>([]);
   const [moneySummary, setMoneySummary] = useState('');
-  
-  // New States for Checklist Compliance
   const [burnoutInsights, setBurnoutInsights] = useState<string[]>([]);
   const [weeklyCompletion, setWeeklyCompletion] = useState(0);
+  const [leakReport, setLeakReport] = useState<LeakReport | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -36,30 +38,58 @@ export default function ReportsScreen() {
     try {
       const currentMonth = new Date().toISOString().slice(0, 7);
       
+      const premium = await getPremiumStatus();
+      setIsPremium(premium);
+
       // 1. Weekly Data
       const history = await getLoadHistory(7);
       setLoadHistory(history);
-
-      // Checklist fix: Fetch Burnout Insights & Completion Rate
-      const insights = await detectBurnoutLoop();
-      setBurnoutInsights(insights);
       const weeklyStats = await getWeeklyTaskStats();
       setWeeklyCompletion(weeklyStats.avgCompletionRate);
       
-      // 2. Stability & Score
-      const stab = await calculateStabilityScore();
-      setStability(stab);
-
-      // 3. Monthly Data
+      // 2. Monthly Data
       const cats = await getCategoryStats(currentMonth);
       setCatStats(cats);
       const rep = await getFinancialReport(currentMonth);
       setMoneySummary(rep.summary);
+
+      // 3. AI Data (Fetched but hidden if not premium)
+      const insights = await detectBurnoutLoop();
+      setBurnoutInsights(insights);
+      
+      const stab = await calculateStabilityScore();
+      setStability(stab);
+      
+      const leaks = await detectMoneyLeaks(currentMonth);
+      setLeakReport(leaks);
+
     } catch (e) {
       console.error("Error loading report data", e);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleUnlockPremium = async () => {
+    Alert.alert("Upgrade to Vita+", "Unlock AI Insights, Stability Scores, and Leak Detection?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Unlock (Demo)", onPress: async () => {
+        await setPremiumStatus(true);
+        loadData();
+        Alert.alert("Welcome to Premium!", "AI Features are now active.");
+      }}
+    ]);
+  };
+
+  const handleDemoSeed = async () => {
+    Alert.alert("Inject Demo Data?", "This will add fake expenses, tasks, and goals for presentation purposes.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Inject Data", onPress: async () => {
+        await seedDemoData();
+        loadData();
+        Alert.alert("Success", "Demo data loaded.");
+      }}
+    ]);
   };
 
   const barData = loadHistory.map(item => ({
@@ -84,9 +114,31 @@ export default function ReportsScreen() {
     }
   }
 
+  const getLeakColor = (status: string) => {
+    if (status === 'Critical') return '#c0392b';
+    if (status === 'Warning') return '#e67e22';
+    return '#27ae60';
+  };
+
+  const renderPaywall = (featureName: string) => (
+    <TouchableOpacity style={styles.paywallCard} onPress={handleUnlockPremium}>
+      <Ionicons name="lock-closed" size={32} color="#f39c12" />
+      <Text style={styles.paywallTitle}>{featureName}</Text>
+      <Text style={styles.paywallSub}>Upgrade to Vita+ to see AI Insights</Text>
+      <View style={styles.unlockBtn}>
+        <Text style={styles.unlockText}>Unlock Now</Text>
+      </View>
+    </TouchableOpacity>
+  );
+
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Reports & Analysis</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.header}>Reports</Text>
+        <TouchableOpacity onPress={handleDemoSeed} style={styles.iconBtn}>
+          <Ionicons name="construct-outline" size={24} color="#ccc" />
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.tabContainer}>
         <TouchableOpacity style={[styles.tab, activeTab === 'Weekly' && styles.activeTab]} onPress={() => setActiveTab('Weekly')}>
@@ -103,7 +155,6 @@ export default function ReportsScreen() {
       >
         {activeTab === 'Weekly' ? (
           <View>
-            {/* WEEKLY CONTENT */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Load Trend (Last 7 Days)</Text>
               <View style={{ height: 200, marginTop: 20 }}>
@@ -123,7 +174,6 @@ export default function ReportsScreen() {
               <Text style={styles.legend}>Red = Overload (> 5 hrs)</Text>
             </View>
 
-            {/* Checklist Fix: Completion Rate & Stats */}
             <View style={styles.row}>
               <View style={[styles.statBox, { backgroundColor: '#e8f8f5' }]}>
                  <Text style={[styles.statValue, { color: '#27ae60' }]}>{weeklyCompletion}%</Text>
@@ -137,26 +187,28 @@ export default function ReportsScreen() {
               </View>
             </View>
 
-            {/* Checklist Fix: Burnout Insights */}
-            {burnoutInsights.length > 0 && (
-              <View style={styles.insightCard}>
-                <View style={styles.insightHeader}>
-                  <Ionicons name="pulse" size={18} color="#c0392b" />
-                  <Text style={styles.insightTitle}>Pattern Detection</Text>
-                </View>
-                {burnoutInsights.map((text, index) => (
-                  <View key={index} style={styles.insightRow}>
-                    <Ionicons name="alert-circle" size={14} color="#555" style={{ marginTop: 2 }} />
-                    <Text style={styles.insightText}>{text}</Text>
+            {isPremium ? (
+              burnoutInsights.length > 0 && (
+                <View style={styles.insightCard}>
+                  <View style={styles.insightHeader}>
+                    <Ionicons name="pulse" size={18} color="#c0392b" />
+                    <Text style={styles.insightTitle}>Pattern Detection</Text>
                   </View>
-                ))}
-              </View>
+                  {burnoutInsights.map((text, index) => (
+                    <View key={index} style={styles.insightRow}>
+                      <Ionicons name="alert-circle" size={14} color="#555" style={{ marginTop: 2 }} />
+                      <Text style={styles.insightText}>{text}</Text>
+                    </View>
+                  ))}
+                </View>
+              )
+            ) : (
+              renderPaywall("Burnout Analysis Locked")
             )}
           </View>
         ) : (
           <View>
-            {/* MONTHLY CONTENT */}
-            {stability && (
+            {isPremium && stability ? (
               <View style={styles.scoreCard}>
                 <View style={styles.scoreHeader}>
                   <Ionicons name="shield-checkmark" size={24} color="#2f95dc" />
@@ -169,6 +221,38 @@ export default function ReportsScreen() {
                   <Text style={styles.scoreSub}>Tasks: {stability.taskScore}/100</Text>
                 </View>
               </View>
+            ) : (
+              renderPaywall("Stability Score Locked")
+            )}
+
+            {/* CHECKLIST ITEM #10: SHOW PAYWALL FOR LEAK DETECTOR */}
+            {isPremium ? (
+              leakReport && leakReport.leaks.length > 0 && (
+                <View style={[styles.aiCard, { borderColor: getLeakColor(leakReport.status) }]}>
+                  <View style={styles.aiHeader}>
+                    <Ionicons name="analytics" size={20} color={getLeakColor(leakReport.status)} />
+                    <Text style={[styles.aiTitle, { color: getLeakColor(leakReport.status) }]}>
+                      Money Leak Detector ({leakReport.status})
+                    </Text>
+                  </View>
+                  
+                  <Text style={styles.aiSuggestion}>💡 {leakReport.actionableSuggestion}</Text>
+                  
+                  {leakReport.leaks.map((leak, i) => (
+                    <View key={i} style={styles.leakRow}>
+                      <View style={styles.leakBadge}>
+                        <Text style={styles.leakBadgeText}>{leak.type}</Text>
+                      </View>
+                      <View style={{flex: 1}}>
+                        <Text style={styles.leakTitle}>{leak.title}</Text>
+                        <Text style={styles.leakDesc}>{leak.description}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )
+            ) : (
+              renderPaywall("Money Leak Analysis Locked")
             )}
 
             <View style={styles.card}>
@@ -207,7 +291,9 @@ export default function ReportsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f7fa', paddingTop: 50 },
-  header: { fontSize: 24, fontWeight: 'bold', marginHorizontal: 20, marginBottom: 20 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: 20, marginBottom: 20 },
+  header: { fontSize: 24, fontWeight: 'bold' },
+  iconBtn: { padding: 5 },
   tabContainer: { flexDirection: 'row', marginHorizontal: 20, marginBottom: 20, backgroundColor: '#e0e0e0', borderRadius: 10, padding: 4 },
   tab: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },
   activeTab: { backgroundColor: '#fff', elevation: 2 },
@@ -234,4 +320,18 @@ const styles = StyleSheet.create({
   scoreRow: { flexDirection: 'row', width: '100%', justifyContent: 'space-around', borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 15 },
   scoreSub: { fontSize: 12, color: '#888' },
   chartContainer: { alignItems: 'center', justifyContent: 'center' },
+  paywallCard: { backgroundColor: '#fff', marginHorizontal: 20, marginBottom: 20, padding: 30, borderRadius: 16, elevation: 2, alignItems: 'center', borderWidth: 1, borderColor: '#eee' },
+  paywallTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginTop: 10 },
+  paywallSub: { fontSize: 13, color: '#777', textAlign: 'center', marginVertical: 10 },
+  unlockBtn: { backgroundColor: '#2f95dc', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, marginTop: 5 },
+  unlockText: { color: '#fff', fontWeight: 'bold' },
+  aiCard: { backgroundColor: '#fff', marginHorizontal: 20, marginBottom: 20, padding: 15, borderRadius: 16, elevation: 3, borderTopWidth: 4 },
+  aiHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  aiTitle: { fontWeight: 'bold', marginLeft: 8, fontSize: 16 },
+  aiSuggestion: { fontSize: 14, fontWeight: '600', color: '#34495e', marginBottom: 15, fontStyle: 'italic' },
+  leakRow: { flexDirection: 'row', marginBottom: 12, alignItems: 'flex-start' },
+  leakBadge: { backgroundColor: '#eee', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginRight: 10, marginTop: 2 },
+  leakBadgeText: { fontSize: 10, fontWeight: 'bold', color: '#555' },
+  leakTitle: { fontWeight: 'bold', fontSize: 13, color: '#333' },
+  leakDesc: { fontSize: 12, color: '#666' },
 });
