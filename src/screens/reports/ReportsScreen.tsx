@@ -10,6 +10,8 @@ import {
   StabilityMetrics, LoadPoint, CategoryStat 
 } from '../../services/database';
 import { detectMoneyLeaks, LeakReport } from '../../services/ai/moneyLeak'; 
+// IMPORT NEW AI SERVICE
+import { analyzeSavings, SavingsReport } from '../../services/ai/savingsPlanner';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -26,6 +28,9 @@ export default function ReportsScreen() {
   const [burnoutInsights, setBurnoutInsights] = useState<string[]>([]);
   const [weeklyCompletion, setWeeklyCompletion] = useState(0);
   const [leakReport, setLeakReport] = useState<LeakReport | null>(null);
+  
+  // NEW STATE: Savings Report
+  const [savingsReport, setSavingsReport] = useState<SavingsReport | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -63,6 +68,10 @@ export default function ReportsScreen() {
       const leaks = await detectMoneyLeaks(currentMonth);
       setLeakReport(leaks);
 
+      // NEW: Savings Analysis
+      const savingStats = await analyzeSavings(currentMonth);
+      setSavingsReport(savingStats);
+
     } catch (e) {
       console.error("Error loading report data", e);
     } finally {
@@ -71,7 +80,7 @@ export default function ReportsScreen() {
   };
 
   const handleUnlockPremium = async () => {
-    Alert.alert("Upgrade to Vita+", "Unlock AI Insights, Stability Scores, and Leak Detection?", [
+    Alert.alert("Upgrade to Vita+", "Unlock Smart Savings Planner & AI Insights?", [
       { text: "Cancel", style: "cancel" },
       { text: "Unlock (Demo)", onPress: async () => {
         await setPremiumStatus(true);
@@ -208,6 +217,7 @@ export default function ReportsScreen() {
           </View>
         ) : (
           <View>
+            {/* AI FEATURE 2: STABILITY SCORE */}
             {isPremium && stability ? (
               <View style={styles.scoreCard}>
                 <View style={styles.scoreHeader}>
@@ -225,7 +235,59 @@ export default function ReportsScreen() {
               renderPaywall("Stability Score Locked")
             )}
 
-            {/* CHECKLIST ITEM #10: SHOW PAYWALL FOR LEAK DETECTOR */}
+            {/* AI FEATURE 4: SMART SAVINGS PLANNER (NEW) */}
+            {isPremium ? (
+              savingsReport && (
+                <View style={styles.savingsCard}>
+                  <View style={styles.savingsHeader}>
+                    <Ionicons name="wallet" size={22} color="#27ae60" />
+                    <Text style={styles.savingsTitle}>Smart Savings Planner</Text>
+                  </View>
+                  
+                  <View style={styles.savingsRow}>
+                    <View style={styles.savingsCol}>
+                      <Text style={styles.savingsLabel}>Actual Savings</Text>
+                      <Text style={[styles.savingsValue, { color: savingsReport.actualSavings > 0 ? '#27ae60' : '#c0392b' }]}>
+                        ₹{savingsReport.actualSavings.toFixed(0)}
+                      </Text>
+                    </View>
+                    <View style={styles.savingsCol}>
+                      <Text style={styles.savingsLabel}>Safe Potential</Text>
+                      <Text style={[styles.savingsValue, { color: '#2980b9' }]}>
+                        ₹{savingsReport.savingsPotential.toFixed(0)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Needs vs Wants Visual Bar */}
+                  <View style={styles.barContainer}>
+                    <View style={[styles.barSegment, { flex: savingsReport.needs, backgroundColor: '#e67e22' }]} />
+                    <View style={[styles.barSegment, { flex: savingsReport.wants, backgroundColor: '#9b59b6' }]} />
+                    {/* Remaining is savings, if positive */}
+                    {savingsReport.actualSavings > 0 && (
+                      <View style={[styles.barSegment, { flex: savingsReport.actualSavings, backgroundColor: '#27ae60' }]} />
+                    )}
+                  </View>
+                  <View style={styles.legendRow}>
+                    <Text style={styles.legendText}><Text style={{color:'#e67e22'}}>●</Text> Needs</Text>
+                    <Text style={styles.legendText}><Text style={{color:'#9b59b6'}}>●</Text> Wants</Text>
+                    <Text style={styles.legendText}><Text style={{color:'#27ae60'}}>●</Text> Savings</Text>
+                  </View>
+
+                  {/* Insights List */}
+                  {savingsReport.insights.map((insight, index) => (
+                    <View key={index} style={styles.insightRow}>
+                      <Ionicons name="bulb-outline" size={14} color="#f39c12" style={{ marginTop: 2 }} />
+                      <Text style={styles.insightText}>{insight}</Text>
+                    </View>
+                  ))}
+                </View>
+              )
+            ) : (
+              renderPaywall("Smart Savings Plan Locked")
+            )}
+
+            {/* AI FEATURE 3: MONEY LEAK DETECTOR */}
             {isPremium ? (
               leakReport && leakReport.leaks.length > 0 && (
                 <View style={[styles.aiCard, { borderColor: getLeakColor(leakReport.status) }]}>
@@ -252,7 +314,8 @@ export default function ReportsScreen() {
                 </View>
               )
             ) : (
-              renderPaywall("Money Leak Analysis Locked")
+              // Don't duplicate paywalls excessively; users see locked savings above
+              null 
             )}
 
             <View style={styles.card}>
@@ -334,4 +397,17 @@ const styles = StyleSheet.create({
   leakBadgeText: { fontSize: 10, fontWeight: 'bold', color: '#555' },
   leakTitle: { fontWeight: 'bold', fontSize: 13, color: '#333' },
   leakDesc: { fontSize: 12, color: '#666' },
+
+  // SAVINGS CARD STYLES
+  savingsCard: { backgroundColor: '#fff', marginHorizontal: 20, marginBottom: 20, padding: 20, borderRadius: 16, elevation: 3, borderTopWidth: 4, borderColor: '#27ae60' },
+  savingsHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
+  savingsTitle: { fontWeight: 'bold', marginLeft: 8, fontSize: 16, color: '#27ae60' },
+  savingsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
+  savingsCol: { alignItems: 'center', flex: 1 },
+  savingsLabel: { fontSize: 12, color: '#7f8c8d' },
+  savingsValue: { fontSize: 20, fontWeight: 'bold' },
+  barContainer: { flexDirection: 'row', height: 12, borderRadius: 6, overflow: 'hidden', marginBottom: 10, backgroundColor: '#eee' },
+  barSegment: { height: '100%' },
+  legendRow: { flexDirection: 'row', justifyContent: 'center', gap: 15, marginBottom: 15 },
+  legendText: { fontSize: 10, color: '#666' },
 });
