@@ -10,8 +10,8 @@ import {
   StabilityMetrics, LoadPoint, CategoryStat 
 } from '../../services/database';
 import { detectMoneyLeaks, LeakReport } from '../../services/ai/moneyLeak'; 
-// IMPORT NEW AI SERVICE
 import { analyzeSavings, SavingsReport } from '../../services/ai/savingsPlanner';
+import { calculateLifeLoad, LifeLoadReport } from '../../services/ai/lifeLoad';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -27,10 +27,11 @@ export default function ReportsScreen() {
   const [moneySummary, setMoneySummary] = useState('');
   const [burnoutInsights, setBurnoutInsights] = useState<string[]>([]);
   const [weeklyCompletion, setWeeklyCompletion] = useState(0);
-  const [leakReport, setLeakReport] = useState<LeakReport | null>(null);
   
-  // NEW STATE: Savings Report
+  // AI Reports
+  const [leakReport, setLeakReport] = useState<LeakReport | null>(null);
   const [savingsReport, setSavingsReport] = useState<SavingsReport | null>(null);
+  const [lifeLoad, setLifeLoad] = useState<LifeLoadReport | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -42,7 +43,6 @@ export default function ReportsScreen() {
     setLoading(true);
     try {
       const currentMonth = new Date().toISOString().slice(0, 7);
-      
       const premium = await getPremiumStatus();
       setIsPremium(premium);
 
@@ -52,23 +52,23 @@ export default function ReportsScreen() {
       const weeklyStats = await getWeeklyTaskStats();
       setWeeklyCompletion(weeklyStats.avgCompletionRate);
       
+      // FEATURE 3: Life Load AI
+      const loadReport = await calculateLifeLoad();
+      setLifeLoad(loadReport);
+
       // 2. Monthly Data
       const cats = await getCategoryStats(currentMonth);
       setCatStats(cats);
       const rep = await getFinancialReport(currentMonth);
       setMoneySummary(rep.summary);
 
-      // 3. AI Data (Fetched but hidden if not premium)
+      // 3. Other AI Data
       const insights = await detectBurnoutLoop();
       setBurnoutInsights(insights);
-      
       const stab = await calculateStabilityScore();
       setStability(stab);
-      
       const leaks = await detectMoneyLeaks(currentMonth);
       setLeakReport(leaks);
-
-      // NEW: Savings Analysis
       const savingStats = await analyzeSavings(currentMonth);
       setSavingsReport(savingStats);
 
@@ -80,7 +80,7 @@ export default function ReportsScreen() {
   };
 
   const handleUnlockPremium = async () => {
-    Alert.alert("Upgrade to Vita+", "Unlock Smart Savings Planner & AI Insights?", [
+    Alert.alert("Upgrade to Vita+", "Unlock Full AI Analysis?", [
       { text: "Cancel", style: "cancel" },
       { text: "Unlock (Demo)", onPress: async () => {
         await setPremiumStatus(true);
@@ -91,7 +91,7 @@ export default function ReportsScreen() {
   };
 
   const handleDemoSeed = async () => {
-    Alert.alert("Inject Demo Data?", "This will add fake expenses, tasks, and goals for presentation purposes.", [
+    Alert.alert("Inject Demo Data?", "Adds fake expenses, tasks, and goals.", [
       { text: "Cancel", style: "cancel" },
       { text: "Inject Data", onPress: async () => {
         await seedDemoData();
@@ -101,6 +101,7 @@ export default function ReportsScreen() {
     ]);
   };
 
+  // --- CHART HELPERS ---
   const barData = loadHistory.map(item => ({
     value: item.effort,
     label: item.label,
@@ -129,11 +130,17 @@ export default function ReportsScreen() {
     return '#27ae60';
   };
 
+  const getLoadColor = (status: string) => {
+    if (status === 'Overload Risk') return '#c0392b';
+    if (status === 'Heavy') return '#e67e22';
+    return '#27ae60';
+  };
+
   const renderPaywall = (featureName: string) => (
     <TouchableOpacity style={styles.paywallCard} onPress={handleUnlockPremium}>
       <Ionicons name="lock-closed" size={32} color="#f39c12" />
-      <Text style={styles.paywallTitle}>{featureName}</Text>
-      <Text style={styles.paywallSub}>Upgrade to Vita+ to see AI Insights</Text>
+      <Text style={styles.paywallTitle}>{featureName} Locked</Text>
+      <Text style={styles.paywallSub}>Upgrade to Vita+ to see Details & Suggestions</Text>
       <View style={styles.unlockBtn}>
         <Text style={styles.unlockText}>Unlock Now</Text>
       </View>
@@ -164,6 +171,52 @@ export default function ReportsScreen() {
       >
         {activeTab === 'Weekly' ? (
           <View>
+            {/* AI FEATURE 3: LIFE LOAD / BURNOUT DETECTOR */}
+            {lifeLoad && (
+              <View style={[styles.aiCard, { borderColor: getLoadColor(lifeLoad.status) }]}>
+                <View style={styles.aiHeader}>
+                  <Ionicons name="speedometer" size={24} color={getLoadColor(lifeLoad.status)} />
+                  <View style={{marginLeft: 10}}>
+                    <Text style={styles.aiTitle}>Life Load: {lifeLoad.status}</Text>
+                    <Text style={styles.aiSub}>Weekly Stress Score: {lifeLoad.score}/100</Text>
+                  </View>
+                </View>
+
+                {/* PREMIUM LOCK FOR CAUSES & SUGGESTIONS */}
+                {isPremium ? (
+                  <View style={{marginTop: 10}}>
+                    {/* Contributors */}
+                    <Text style={styles.sectionLabel}>Stress Contributors:</Text>
+                    <View style={styles.chipRow}>
+                      {lifeLoad.contributors.length > 0 ? (
+                        lifeLoad.contributors.map((c, i) => (
+                          <View key={i} style={styles.causeChip}>
+                            <Text style={styles.causeText}>{c}</Text>
+                          </View>
+                        ))
+                      ) : (
+                        <Text style={styles.safeText}>None. You are balanced.</Text>
+                      )}
+                    </View>
+
+                    {/* Suggestions */}
+                    <Text style={styles.sectionLabel}>AI Suggestions:</Text>
+                    {lifeLoad.suggestions.map((s, i) => (
+                      <View key={i} style={styles.insightRow}>
+                        <Ionicons name="bulb-outline" size={16} color="#f39c12" style={{marginTop:2}} />
+                        <Text style={styles.insightText}>{s}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  // Free users see score but no details
+                  <TouchableOpacity style={styles.miniPaywall} onPress={handleUnlockPremium}>
+                    <Text style={styles.miniPaywallText}>🔒 Unlock Stress Analysis</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Load Trend (Last 7 Days)</Text>
               <View style={{ height: 200, marginTop: 20 }}>
@@ -195,28 +248,11 @@ export default function ReportsScreen() {
                  <Text style={styles.statLabel}>Overload Days</Text>
               </View>
             </View>
-
-            {isPremium ? (
-              burnoutInsights.length > 0 && (
-                <View style={styles.insightCard}>
-                  <View style={styles.insightHeader}>
-                    <Ionicons name="pulse" size={18} color="#c0392b" />
-                    <Text style={styles.insightTitle}>Pattern Detection</Text>
-                  </View>
-                  {burnoutInsights.map((text, index) => (
-                    <View key={index} style={styles.insightRow}>
-                      <Ionicons name="alert-circle" size={14} color="#555" style={{ marginTop: 2 }} />
-                      <Text style={styles.insightText}>{text}</Text>
-                    </View>
-                  ))}
-                </View>
-              )
-            ) : (
-              renderPaywall("Burnout Analysis Locked")
-            )}
           </View>
         ) : (
           <View>
+            {/* MONTHLY TAB CONTENT */}
+            
             {/* AI FEATURE 2: STABILITY SCORE */}
             {isPremium && stability ? (
               <View style={styles.scoreCard}>
@@ -235,87 +271,73 @@ export default function ReportsScreen() {
               renderPaywall("Stability Score Locked")
             )}
 
-            {/* AI FEATURE 4: SMART SAVINGS PLANNER (NEW) */}
-            {isPremium ? (
-              savingsReport && (
-                <View style={styles.savingsCard}>
-                  <View style={styles.savingsHeader}>
-                    <Ionicons name="wallet" size={22} color="#27ae60" />
-                    <Text style={styles.savingsTitle}>Smart Savings Planner</Text>
-                  </View>
-                  
-                  <View style={styles.savingsRow}>
-                    <View style={styles.savingsCol}>
-                      <Text style={styles.savingsLabel}>Actual Savings</Text>
-                      <Text style={[styles.savingsValue, { color: savingsReport.actualSavings > 0 ? '#27ae60' : '#c0392b' }]}>
-                        ₹{savingsReport.actualSavings.toFixed(0)}
-                      </Text>
-                    </View>
-                    <View style={styles.savingsCol}>
-                      <Text style={styles.savingsLabel}>Safe Potential</Text>
-                      <Text style={[styles.savingsValue, { color: '#2980b9' }]}>
-                        ₹{savingsReport.savingsPotential.toFixed(0)}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Needs vs Wants Visual Bar */}
-                  <View style={styles.barContainer}>
-                    <View style={[styles.barSegment, { flex: savingsReport.needs, backgroundColor: '#e67e22' }]} />
-                    <View style={[styles.barSegment, { flex: savingsReport.wants, backgroundColor: '#9b59b6' }]} />
-                    {/* Remaining is savings, if positive */}
-                    {savingsReport.actualSavings > 0 && (
-                      <View style={[styles.barSegment, { flex: savingsReport.actualSavings, backgroundColor: '#27ae60' }]} />
-                    )}
-                  </View>
-                  <View style={styles.legendRow}>
-                    <Text style={styles.legendText}><Text style={{color:'#e67e22'}}>●</Text> Needs</Text>
-                    <Text style={styles.legendText}><Text style={{color:'#9b59b6'}}>●</Text> Wants</Text>
-                    <Text style={styles.legendText}><Text style={{color:'#27ae60'}}>●</Text> Savings</Text>
-                  </View>
-
-                  {/* Insights List */}
-                  {savingsReport.insights.map((insight, index) => (
-                    <View key={index} style={styles.insightRow}>
-                      <Ionicons name="bulb-outline" size={14} color="#f39c12" style={{ marginTop: 2 }} />
-                      <Text style={styles.insightText}>{insight}</Text>
-                    </View>
-                  ))}
+            {/* AI FEATURE 4: SMART SAVINGS PLANNER */}
+            {isPremium && savingsReport ? (
+              <View style={styles.savingsCard}>
+                <View style={styles.savingsHeader}>
+                  <Ionicons name="wallet" size={22} color="#27ae60" />
+                  <Text style={styles.savingsTitle}>Smart Savings Planner</Text>
                 </View>
-              )
+                <View style={styles.savingsRow}>
+                  <View style={styles.savingsCol}>
+                    <Text style={styles.savingsLabel}>Actual Savings</Text>
+                    <Text style={[styles.savingsValue, { color: savingsReport.actualSavings > 0 ? '#27ae60' : '#c0392b' }]}>
+                      ₹{savingsReport.actualSavings.toFixed(0)}
+                    </Text>
+                  </View>
+                  <View style={styles.savingsCol}>
+                    <Text style={styles.savingsLabel}>Safe Potential</Text>
+                    <Text style={[styles.savingsValue, { color: '#2980b9' }]}>
+                      ₹{savingsReport.savingsPotential.toFixed(0)}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.barContainer}>
+                  <View style={[styles.barSegment, { flex: savingsReport.needs, backgroundColor: '#e67e22' }]} />
+                  <View style={[styles.barSegment, { flex: savingsReport.wants, backgroundColor: '#9b59b6' }]} />
+                  {savingsReport.actualSavings > 0 && <View style={[styles.barSegment, { flex: savingsReport.actualSavings, backgroundColor: '#27ae60' }]} />}
+                </View>
+                <View style={styles.legendRow}>
+                  <Text style={styles.legendText}><Text style={{color:'#e67e22'}}>●</Text> Needs</Text>
+                  <Text style={styles.legendText}><Text style={{color:'#9b59b6'}}>●</Text> Wants</Text>
+                  <Text style={styles.legendText}><Text style={{color:'#27ae60'}}>●</Text> Savings</Text>
+                </View>
+                {savingsReport.insights.map((insight, index) => (
+                  <View key={index} style={styles.insightRow}>
+                    <Ionicons name="bulb-outline" size={14} color="#f39c12" style={{ marginTop: 2 }} />
+                    <Text style={styles.insightText}>{insight}</Text>
+                  </View>
+                ))}
+              </View>
             ) : (
               renderPaywall("Smart Savings Plan Locked")
             )}
 
             {/* AI FEATURE 3: MONEY LEAK DETECTOR */}
-            {isPremium ? (
-              leakReport && leakReport.leaks.length > 0 && (
-                <View style={[styles.aiCard, { borderColor: getLeakColor(leakReport.status) }]}>
-                  <View style={styles.aiHeader}>
-                    <Ionicons name="analytics" size={20} color={getLeakColor(leakReport.status)} />
-                    <Text style={[styles.aiTitle, { color: getLeakColor(leakReport.status) }]}>
-                      Money Leak Detector ({leakReport.status})
-                    </Text>
-                  </View>
-                  
-                  <Text style={styles.aiSuggestion}>💡 {leakReport.actionableSuggestion}</Text>
-                  
-                  {leakReport.leaks.map((leak, i) => (
-                    <View key={i} style={styles.leakRow}>
-                      <View style={styles.leakBadge}>
-                        <Text style={styles.leakBadgeText}>{leak.type}</Text>
-                      </View>
-                      <View style={{flex: 1}}>
-                        <Text style={styles.leakTitle}>{leak.title}</Text>
-                        <Text style={styles.leakDesc}>{leak.description}</Text>
-                      </View>
-                    </View>
-                  ))}
+            {isPremium && leakReport && leakReport.leaks.length > 0 ? (
+              <View style={[styles.aiCard, { borderColor: getLeakColor(leakReport.status) }]}>
+                <View style={styles.aiHeader}>
+                  <Ionicons name="analytics" size={20} color={getLeakColor(leakReport.status)} />
+                  <Text style={[styles.aiTitle, { color: getLeakColor(leakReport.status) }]}>
+                    Money Leak Detector ({leakReport.status})
+                  </Text>
                 </View>
-              )
+                <Text style={styles.aiSuggestion}>💡 {leakReport.actionableSuggestion}</Text>
+                {leakReport.leaks.map((leak, i) => (
+                  <View key={i} style={styles.leakRow}>
+                    <View style={styles.leakBadge}>
+                      <Text style={styles.leakBadgeText}>{leak.type}</Text>
+                    </View>
+                    <View style={{flex: 1}}>
+                      <Text style={styles.leakTitle}>{leak.title}</Text>
+                      <Text style={styles.leakDesc}>{leak.description}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
             ) : (
-              // Don't duplicate paywalls excessively; users see locked savings above
-              null 
+              // Don't duplicate paywalls excessively
+              null
             )}
 
             <View style={styles.card}>
@@ -388,17 +410,19 @@ const styles = StyleSheet.create({
   paywallSub: { fontSize: 13, color: '#777', textAlign: 'center', marginVertical: 10 },
   unlockBtn: { backgroundColor: '#2f95dc', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, marginTop: 5 },
   unlockText: { color: '#fff', fontWeight: 'bold' },
+  
+  // AI LEAK & SAVINGS STYLES
   aiCard: { backgroundColor: '#fff', marginHorizontal: 20, marginBottom: 20, padding: 15, borderRadius: 16, elevation: 3, borderTopWidth: 4 },
   aiHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   aiTitle: { fontWeight: 'bold', marginLeft: 8, fontSize: 16 },
+  aiSub: { fontSize: 12, color: '#666', marginLeft: 8 },
   aiSuggestion: { fontSize: 14, fontWeight: '600', color: '#34495e', marginBottom: 15, fontStyle: 'italic' },
   leakRow: { flexDirection: 'row', marginBottom: 12, alignItems: 'flex-start' },
   leakBadge: { backgroundColor: '#eee', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginRight: 10, marginTop: 2 },
   leakBadgeText: { fontSize: 10, fontWeight: 'bold', color: '#555' },
   leakTitle: { fontWeight: 'bold', fontSize: 13, color: '#333' },
   leakDesc: { fontSize: 12, color: '#666' },
-
-  // SAVINGS CARD STYLES
+  
   savingsCard: { backgroundColor: '#fff', marginHorizontal: 20, marginBottom: 20, padding: 20, borderRadius: 16, elevation: 3, borderTopWidth: 4, borderColor: '#27ae60' },
   savingsHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
   savingsTitle: { fontWeight: 'bold', marginLeft: 8, fontSize: 16, color: '#27ae60' },
@@ -410,4 +434,13 @@ const styles = StyleSheet.create({
   barSegment: { height: '100%' },
   legendRow: { flexDirection: 'row', justifyContent: 'center', gap: 15, marginBottom: 15 },
   legendText: { fontSize: 10, color: '#666' },
+
+  // NEW: Life Load specific
+  sectionLabel: { fontSize: 12, fontWeight: 'bold', color: '#333', marginTop: 10, marginBottom: 5 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  causeChip: { backgroundColor: '#fdedec', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  causeText: { color: '#c0392b', fontSize: 12, fontWeight: '600' },
+  safeText: { color: '#27ae60', fontSize: 12, fontStyle: 'italic' },
+  miniPaywall: { marginTop: 10, padding: 10, backgroundColor: '#f0f0f0', borderRadius: 8, alignItems: 'center' },
+  miniPaywallText: { color: '#2f95dc', fontWeight: 'bold' },
 });
