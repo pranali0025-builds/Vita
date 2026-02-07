@@ -1,41 +1,63 @@
 import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { View, Text, ActivityIndicator } from 'react-native';
-import { initDatabase } from './src/services/database'; // Import the DB logic we wrote earlier
-import AppNavigator from './src/navigation/AppNavigator'; // Import the navigation we just wrote
+import { StatusBar } from 'expo-status-bar'; // <--- NEW IMPORT
+import { initDatabase, checkSession } from './src/services/database';
+import AppNavigator from './src/navigation/AppNavigator';
+import { AuthScreen } from './src/screens/auth/AuthScreens';
+import { AuthContext } from './src/context/AuthContext'; 
 
 export default function App() {
   const [dbLoaded, setDbLoaded] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
-  // This runs ONCE when the app launches
   useEffect(() => {
     const setup = async () => {
       try {
-        await initDatabase(); // Create tables if they don't exist
-        console.log('Database initialized successfully');
-        setDbLoaded(true);
+        await initDatabase();
+        const hasSession = await checkSession();
+        setIsAuthenticated(hasSession);
       } catch (e) {
-        console.error('Database failed to load:', e);
+        console.error('Startup failed:', e);
+      } finally {
+        setDbLoaded(true);
+        setCheckingAuth(false);
       }
     };
 
     setup();
   }, []);
 
-  // Show a loading spinner while waiting for SQLite
-  if (!dbLoaded) {
+  const authContext = React.useMemo(
+    () => ({
+      signOut: () => {
+        setIsAuthenticated(false);
+      },
+    }),
+    []
+  );
+
+  if (!dbLoaded || checkingAuth) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#0000ff" />
+        <ActivityIndicator size="large" color="#2f95dc" />
         <Text style={{ marginTop: 10 }}>Initializing Vita...</Text>
       </View>
     );
   }
 
-  // Once loaded, show the App
   return (
-    <NavigationContainer>
-      <AppNavigator />
-    </NavigationContainer>
+    <AuthContext.Provider value={authContext}>
+      {/* FORCE DARK STATUS BAR (Black text on light background) */}
+      <StatusBar style="dark" />
+      <NavigationContainer>
+        {isAuthenticated ? (
+          <AppNavigator />
+        ) : (
+          <AuthScreen onLoginSuccess={() => setIsAuthenticated(true)} />
+        )}
+      </NavigationContainer>
+    </AuthContext.Provider>
   );
 }

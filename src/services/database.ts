@@ -22,7 +22,7 @@ export const initDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
     db = await SQLite.openDatabaseAsync('vita.db');
     await db.runAsync('PRAGMA journal_mode = WAL;', []);
 
-    await db.runAsync(`CREATE TABLE IF NOT EXISTS user_profile (id INTEGER PRIMARY KEY NOT NULL, name TEXT, monthly_salary REAL DEFAULT 0, setup_completed INTEGER DEFAULT 0, is_premium INTEGER DEFAULT 0);`, []);
+    await db.runAsync(`CREATE TABLE IF NOT EXISTS user_profile (id INTEGER PRIMARY KEY NOT NULL, name TEXT, email TEXT, password TEXT, monthly_salary REAL DEFAULT 0, setup_completed INTEGER DEFAULT 0, is_premium INTEGER DEFAULT 0, is_logged_in INTEGER DEFAULT 0);`, []);
     await db.runAsync(`CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, amount REAL NOT NULL, category TEXT NOT NULL, date TEXT NOT NULL, note TEXT, payment_type TEXT DEFAULT 'UPI');`, []);
     await db.runAsync(`CREATE TABLE IF NOT EXISTS subscriptions (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, amount REAL NOT NULL, billing_cycle TEXT DEFAULT 'Monthly', next_billing_date TEXT, category TEXT, is_active INTEGER DEFAULT 1);`, []);
     await db.runAsync(`CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, is_completed INTEGER DEFAULT 0, type TEXT, date TEXT, priority TEXT DEFAULT 'Medium', estimated_effort INTEGER DEFAULT 30, category TEXT DEFAULT 'Work');`, []);
@@ -30,11 +30,13 @@ export const initDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
     await db.runAsync(`CREATE TABLE IF NOT EXISTS documents (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, category TEXT, uri TEXT, expiry_date TEXT, is_important INTEGER DEFAULT 0);`, []);
     await db.runAsync(`CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, category TEXT, target_date TEXT, progress INTEGER DEFAULT 0, status TEXT DEFAULT 'Not Started', notes TEXT);`, []);
 
-    // Migrations to ensure columns exist if updating app
+    try { await db.runAsync("ALTER TABLE user_profile ADD COLUMN email TEXT;", []); } catch (e) {}
+    try { await db.runAsync("ALTER TABLE user_profile ADD COLUMN password TEXT;", []); } catch (e) {}
+    try { await db.runAsync("ALTER TABLE user_profile ADD COLUMN is_logged_in INTEGER DEFAULT 0;", []); } catch (e) {}
     try { await db.runAsync("ALTER TABLE expenses ADD COLUMN note TEXT;", []); } catch (e) {}
     try { await db.runAsync("ALTER TABLE expenses ADD COLUMN payment_type TEXT DEFAULT 'UPI';", []); } catch (e) {}
     try { await db.runAsync("ALTER TABLE user_profile ADD COLUMN monthly_salary REAL DEFAULT 0;", []); } catch (e) {}
-    try { await db.runAsync("ALTER TABLE user_profile ADD COLUMN is_premium INTEGER DEFAULT 0;", []); } catch (e) {} // Premium Flag
+    try { await db.runAsync("ALTER TABLE user_profile ADD COLUMN is_premium INTEGER DEFAULT 0;", []); } catch (e) {}
     try { await db.runAsync("ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'Medium';", []); } catch (e) {}
     try { await db.runAsync("ALTER TABLE tasks ADD COLUMN estimated_effort INTEGER DEFAULT 30;", []); } catch (e) {}
     try { await db.runAsync("ALTER TABLE tasks ADD COLUMN category TEXT DEFAULT 'Work';", []); } catch (e) {}
@@ -45,32 +47,57 @@ export const initDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
 };
 const getDB = async (): Promise<SQLite.SQLiteDatabase> => { if (db) return db; return await initDatabase(); };
 
-// --- 3. PREMIUM & USER FUNCTIONS (Fix for your error) ---
-export const getPremiumStatus = async (): Promise<boolean> => {
-  const database = await getDB();
-  const res = await database.getAllAsync<{ is_premium: number }>('SELECT is_premium FROM user_profile WHERE id = 1', []);
-  return res.length > 0 && res[0].is_premium === 1;
-};
-
-export const setPremiumStatus = async (status: boolean) => {
-  const database = await getDB();
-  const val = status ? 1 : 0;
-  const existing = await database.getAllAsync('SELECT * FROM user_profile WHERE id = 1', []);
-  if (existing.length > 0) {
-    await database.runAsync('UPDATE user_profile SET is_premium = ? WHERE id = 1', [val]);
-  } else {
-    await database.runAsync('INSERT INTO user_profile (id, is_premium) VALUES (1, ?)', [val]);
+// --- 3. AUTH & USER FUNCTIONS ---
+const simpleHash = (str: string) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash;
   }
+  return hash.toString();
 };
 
-// --- 4. CORE FUNCTIONS ---
+export const registerUser = async (name: string, email: string, password: string): Promise<boolean> => {
+  const database = await getDB();
+  const existing = await database.getAllAsync('SELECT * FROM user_profile WHERE email = ?', [email]);
+  if (existing.length > 0) return false;
+  const hash = simpleHash(password);
+  await database.runAsync('DELETE FROM user_profile'); 
+  await database.runAsync('INSERT INTO user_profile (id, name, email, password, is_logged_in) VALUES (1, ?, ?, ?, 1)', [name, email, hash]);
+  return true;
+};
+
+export const loginUser = async (email: string, password: string): Promise<boolean> => {
+  const database = await getDB();
+  const hash = simpleHash(password);
+  const user = await database.getAllAsync<{id: number}>('SELECT * FROM user_profile WHERE email = ? AND password = ?', [email, hash]);
+  if (user.length > 0) { await database.runAsync('UPDATE user_profile SET is_logged_in = 1 WHERE id = 1', []); return true; }
+  return false;
+};
+
+export const logoutUser = async () => { const database = await getDB(); await database.runAsync('UPDATE user_profile SET is_logged_in = 0 WHERE id = 1', []); };
+export const checkSession = async (): Promise<boolean> => { const database = await getDB(); const res = await database.getAllAsync<{ is_logged_in: number }>('SELECT is_logged_in FROM user_profile WHERE id = 1', []); return res.length > 0 && res[0].is_logged_in === 1; };
+export const getUserName = async (): Promise<string> => { const database = await getDB(); const res = await database.getAllAsync<{ name: string }>('SELECT name FROM user_profile WHERE id = 1', []); return res.length > 0 ? res[0].name : "User"; };
+
+// NEW: Fetch full details for Settings
+export const getUserDetails = async () => {
+  const database = await getDB();
+  const res = await database.getAllAsync<{ name: string, email: string, is_premium: number }>('SELECT name, email, is_premium FROM user_profile WHERE id = 1', []);
+  return res.length > 0 ? res[0] : null;
+};
+
+export const getPremiumStatus = async (): Promise<boolean> => { const database = await getDB(); const res = await database.getAllAsync<{ is_premium: number }>('SELECT is_premium FROM user_profile WHERE id = 1', []); return res.length > 0 && res[0].is_premium === 1; };
+export const setPremiumStatus = async (status: boolean) => { const database = await getDB(); const val = status ? 1 : 0; await database.runAsync('UPDATE user_profile SET is_premium = ? WHERE id = 1', [val]); };
+
+// --- 4. CORE FUNCTIONS (Compact) ---
 export const addExpense = async (amount: number, category: string, date: string, note: string, paymentType: string) => { const database = await getDB(); await database.runAsync(`INSERT INTO expenses (amount, category, date, note, payment_type) VALUES (?, ?, ?, ?, ?)`, [amount, category, date, note, paymentType]); };
 export const getExpensesByMonth = async (monthStr: string) => { const database = await getDB(); return await database.getAllAsync<Expense>(`SELECT * FROM expenses WHERE date LIKE ? ORDER BY date DESC`, [`${monthStr}%`]); };
 export const deleteExpense = async (id: number) => { const database = await getDB(); await database.runAsync('DELETE FROM expenses WHERE id = ?', [id]); };
 export const addSubscription = async (name: string, amount: number, billingCycle: string, nextDate: string, category: string) => { const database = await getDB(); await database.runAsync(`INSERT INTO subscriptions (name, amount, billing_cycle, next_billing_date, category, is_active) VALUES (?, ?, ?, ?, ?, 1)`, [name, amount, billingCycle, nextDate, category]); };
 export const getActiveSubscriptions = async () => { const database = await getDB(); return await database.getAllAsync<Subscription>(`SELECT * FROM subscriptions WHERE is_active = 1 ORDER BY next_billing_date ASC`, []); };
 export const deleteSubscription = async (id: number) => { const database = await getDB(); await database.runAsync('DELETE FROM subscriptions WHERE id = ?', [id]); };
-export const setMonthlySalary = async (amount: number) => { const database = await getDB(); const existing = await database.getAllAsync('SELECT * FROM user_profile WHERE id = 1', []); if (existing.length > 0) { await database.runAsync('UPDATE user_profile SET monthly_salary = ? WHERE id = 1', [amount]); } else { await database.runAsync('INSERT INTO user_profile (id, monthly_salary) VALUES (1, ?)', [amount]); } };
+export const setMonthlySalary = async (amount: number) => { const database = await getDB(); await database.runAsync('UPDATE user_profile SET monthly_salary = ? WHERE id = 1', [amount]); };
 export const getMonthlySalary = async () => { const database = await getDB(); const res = await database.getAllAsync<{ monthly_salary: number }>('SELECT monthly_salary FROM user_profile WHERE id = 1', []); return res.length > 0 ? res[0].monthly_salary : 0; };
 export const getCategoryStats = async (monthStr: string): Promise<CategoryStat[]> => { const database = await getDB(); const results = await database.getAllAsync<{ category: string; total: number }>(`SELECT category, SUM(amount) as total FROM expenses WHERE date LIKE ? GROUP BY category ORDER BY total DESC`, [`${monthStr}%`]); const grandTotal = results.reduce((acc, curr) => acc + (curr.total || 0), 0); return results.map(r => ({ category: r.category, total: r.total || 0, percentage: grandTotal > 0 ? ((r.total || 0) / grandTotal) * 100 : 0 })); };
 export const getFinancialReport = async (monthStr: string): Promise<FinancialReport> => {
@@ -150,51 +177,17 @@ export const detectGoalRisks = async (): Promise<string[]> => {
   return risks;
 };
 
-// --- 5. DEMO & DEBUGGING ---
+// --- RESET & DEMO ---
 export const clearAllData = async () => { const database = await getDB(); await database.execAsync(`DELETE FROM expenses; DELETE FROM subscriptions; DELETE FROM user_profile; DELETE FROM tasks; DELETE FROM documents; DELETE FROM goals;`); };
-
-// DEMO GENERATOR (Professor Checklist Item 6)
 export const seedDemoData = async () => {
   const database = await getDB();
-  const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
-  const monthStr = today.toISOString().slice(0, 7);
-
-  // 1. Income
-  await setMonthlySalary(60000);
-
-  // 2. Expenses (Various categories)
-  const expenses = [
-    { amt: 12000, cat: 'Rent', title: 'Rent' },
-    { amt: 3500, cat: 'Food', title: 'Groceries' },
-    { amt: 1200, cat: 'Transport', title: 'Fuel' },
-    { amt: 800, cat: 'Fun', title: 'Cinema' },
-    { amt: 450, cat: 'Food', title: 'Zomato' },
-    { amt: 2000, cat: 'Other', title: 'Shopping' },
-  ];
-  for (const e of expenses) {
-    await database.runAsync(`INSERT INTO expenses (amount, category, date, note, payment_type) VALUES (?, ?, ?, ?, 'UPI')`, [e.amt, e.cat, todayStr, e.title]);
-  }
-
-  // 3. Subscriptions (Trigger "Overload" warning)
-  const subs = [
-    { name: 'Netflix', amt: 649 },
-    { name: 'Spotify', amt: 119 },
-    { name: 'Gym', amt: 1500 },
-    { name: 'AWS', amt: 2000 },
-  ];
-  for (const s of subs) {
-    await database.runAsync(`INSERT INTO subscriptions (name, amount, billing_cycle, next_billing_date, category, is_active) VALUES (?, ?, 'Monthly', ?, 'Other', 1)`, [s.name, s.amt, todayStr]);
-  }
-
-  // 4. Tasks (Last 3 days populated to show charts)
-  for (let i = 0; i < 3; i++) {
-    const d = new Date(); d.setDate(d.getDate() - i); const dStr = d.toISOString().slice(0, 10);
-    await database.runAsync(`INSERT INTO tasks (title, priority, estimated_effort, category, date, is_completed) VALUES (?, 'High', 60, 'Work', ?, 1)`, [`Deep Work ${i}`, dStr]);
-    await database.runAsync(`INSERT INTO tasks (title, priority, estimated_effort, category, date, is_completed) VALUES (?, 'Medium', 30, 'Personal', ?, 0)`, [`Errands ${i}`, dStr]);
-  }
-
-  // 5. Goals
+  const today = new Date().toISOString().slice(0, 10);
+  await database.runAsync('UPDATE user_profile SET monthly_salary = 60000 WHERE id = 1');
+  const expenses = [{ amt: 12000, cat: 'Rent', title: 'Rent' }, { amt: 3500, cat: 'Food', title: 'Groceries' }, { amt: 1200, cat: 'Transport', title: 'Fuel' }, { amt: 800, cat: 'Fun', title: 'Cinema' }, { amt: 450, cat: 'Food', title: 'Zomato' }, { amt: 2000, cat: 'Other', title: 'Shopping' }];
+  for (const e of expenses) { await database.runAsync(`INSERT INTO expenses (amount, category, date, note, payment_type) VALUES (?, ?, ?, ?, 'UPI')`, [e.amt, e.cat, today, e.title]); }
+  const subs = [{ name: 'Netflix', amt: 649 }, { name: 'Spotify', amt: 119 }, { name: 'Gym', amt: 1500 }, { name: 'AWS', amt: 2000 }];
+  for (const s of subs) { await database.runAsync(`INSERT INTO subscriptions (name, amount, billing_cycle, next_billing_date, category, is_active) VALUES (?, ?, 'Monthly', ?, 'Other', 1)`, [s.name, s.amt, today]); }
+  for (let i = 0; i < 3; i++) { const d = new Date(); d.setDate(d.getDate() - i); const dStr = d.toISOString().slice(0, 10); await database.runAsync(`INSERT INTO tasks (title, priority, estimated_effort, category, date, is_completed) VALUES (?, 'High', 60, 'Work', ?, 1)`, [`Deep Work ${i}`, dStr]); await database.runAsync(`INSERT INTO tasks (title, priority, estimated_effort, category, date, is_completed) VALUES (?, 'Medium', 30, 'Personal', ?, 0)`, [`Errands ${i}`, dStr]); }
   await addGoal("Save 1 Lakh", "Finance", "2024-12-31", "For emergency fund");
-  await addGoal("Learn React Native", "Career", todayStr, "Finish Vita App"); // Will trigger overdue risk
+  await addGoal("Learn React Native", "Career", today, "Finish Vita App");
 };

@@ -7,8 +7,9 @@ import {
   addDocument, getDocuments, deleteDocument, calculatePreparednessScore, 
   Document, PreparednessReport 
 } from '../../services/database';
+import { colors } from '../../theme/colors';
+import { CATEGORIES } from '../../utils/constants';
 
-const CATEGORIES = ['Identity', 'Education', 'Work', 'Finance', 'Other'];
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
@@ -19,12 +20,12 @@ export default function VaultScreen() {
 
   // Modal State
   const [modalVisible, setModalVisible] = useState(false);
-  const [viewerVisible, setViewerVisible] = useState(false); // <--- NEW: Viewer Visibility
-  const [selectedDoc, setSelectedDoc] = useState<Document | null>(null); // <--- NEW: Selected Doc for viewing
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
   
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('Identity');
-  const [expiry, setExpiry] = useState(''); // YYYY-MM-DD
+  const [category, setCategory] = useState(CATEGORIES.DOCS[0]);
+  const [expiry, setExpiry] = useState('');
   const [imageUri, setImageUri] = useState<string | null>(null);
 
   useFocusEffect(
@@ -40,82 +41,55 @@ export default function VaultScreen() {
       const rep = await calculatePreparednessScore();
       setDocuments(docs);
       setReport(rep);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
-      quality: 0.8, // Better quality for viewing
+      quality: 0.8,
     });
-
-    if (!result.canceled) {
-      setImageUri(result.assets[0].uri);
-    }
+    if (!result.canceled) setImageUri(result.assets[0].uri);
   };
 
   const handleSave = async () => {
-    if (!title || !imageUri) {
-      return Alert.alert("Missing Info", "Please provide a title and select an image.");
-    }
-    try {
-      await addDocument(title, category, imageUri, expiry || null);
-      setModalVisible(false);
-      resetForm();
-      loadData();
-    } catch (e) {
-      Alert.alert("Error", "Could not save document.");
-    }
+    if (!title || !imageUri) return Alert.alert("Missing Info", "Title and Image are required.");
+    await addDocument(title, category, imageUri, expiry || null);
+    setModalVisible(false);
+    setTitle(''); setCategory(CATEGORIES.DOCS[0]); setExpiry(''); setImageUri(null);
+    loadData();
   };
 
   const handleDelete = async (id: number) => {
-    Alert.alert("Delete Document", "This cannot be undone.", [
-      { text: "Cancel" },
-      { text: "Delete", style: 'destructive', onPress: async () => {
-        await deleteDocument(id);
-        loadData();
-      }}
+    Alert.alert("Delete", "Permanently remove document?", [
+      { text: "Cancel" }, { text: "Delete", style: 'destructive', onPress: async () => { await deleteDocument(id); loadData(); }}
     ]);
   };
 
-  const resetForm = () => {
-    setTitle(''); setCategory('Identity'); setExpiry(''); setImageUri(null);
-  };
-
-  // --- NEW: OPEN VIEWER ---
-  const openViewer = (doc: Document) => {
-    setSelectedDoc(doc);
-    setViewerVisible(true);
-  };
-
   const renderDoc = ({ item }: { item: Document }) => (
-    <TouchableOpacity 
-      style={styles.card} 
-      onPress={() => openViewer(item)} // <--- NEW: Tap to view
-      onLongPress={() => handleDelete(item.id)}
-    >
+    <TouchableOpacity style={styles.card} onPress={() => { setSelectedDoc(item); setViewerVisible(true); }} onLongPress={() => handleDelete(item.id)}>
       <Image source={{ uri: item.uri }} style={styles.thumbnail} />
       <View style={styles.cardContent}>
         <Text style={styles.cardTitle}>{item.title}</Text>
         <Text style={styles.cardSub}>{item.category}</Text>
-        {item.expiry_date ? (
-          <Text style={[styles.expiry, { color: '#c0392b' }]}>Exp: {item.expiry_date}</Text>
-        ) : (
-          <Text style={[styles.expiry, { color: '#27ae60' }]}>No Expiry</Text>
-        )}
+        {item.expiry_date ? <Text style={[styles.expiry, { color: colors.danger }]}>Exp: {item.expiry_date}</Text> : <Text style={[styles.expiry, { color: colors.success }]}>No Expiry</Text>}
       </View>
-      <Ionicons name="eye-outline" size={20} color="#2f95dc" />
+      <Ionicons name="eye-outline" size={20} color={colors.primary} />
     </TouchableOpacity>
+  );
+
+  // --- EMPTY STATE ---
+  const EmptyVault = () => (
+    <View style={styles.empty}>
+      <Ionicons name="folder-open-outline" size={48} color={colors.placeholder} />
+      <Text style={styles.emptyText}>Vault is empty.</Text>
+      <Text style={styles.emptySub}>Store IDs, Degrees, and Finance docs securely.</Text>
+    </View>
   );
 
   return (
     <View style={styles.container}>
-      {/* 1. HEADER & PREPAREDNESS SCORE */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Document Vault</Text>
         {report && (
@@ -138,70 +112,49 @@ export default function VaultScreen() {
         )}
       </View>
 
-      {/* 2. DOC LIST */}
       <FlatList 
         data={documents}
         renderItem={renderDoc}
         keyExtractor={i => i.id.toString()}
-        contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={loadData} />}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name="folder-open-outline" size={48} color="#ccc" />
-            <Text style={styles.emptyText}>Vault is empty.</Text>
-            <Text style={styles.emptySub}>Store IDs, Degrees, and Finance docs securely.</Text>
-          </View>
-        }
+        ListEmptyComponent={EmptyVault}
       />
 
-      {/* 3. FAB */}
       <TouchableOpacity style={styles.fab} onPress={() => setModalVisible(true)}>
         <Ionicons name="add" size={30} color="#fff" />
       </TouchableOpacity>
 
-      {/* 4. ADD DOCUMENT MODAL */}
+      {/* ADD MODAL */}
       <Modal visible={modalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Add Document</Text>
             <Text style={styles.digitalNote}>* Works only on digital documents (Images)</Text>
-
-            {/* Image Picker */}
             <TouchableOpacity style={styles.imagePicker} onPress={pickImage}>
-              {imageUri ? (
-                <Image source={{ uri: imageUri }} style={{ width: '100%', height: '100%', borderRadius: 8 }} />
-              ) : (
-                <View style={{ alignItems: 'center' }}>
-                  <Ionicons name="camera" size={30} color="#ccc" />
-                  <Text style={{ color: '#aaa', marginTop: 5 }}>Tap to Select Image</Text>
-                </View>
-              )}
+              {imageUri ? <Image source={{ uri: imageUri }} style={{ width: '100%', height: '100%', borderRadius: 8 }} /> : <View style={{ alignItems: 'center' }}><Ionicons name="camera" size={30} color="#ccc" /><Text style={{ color: '#aaa', marginTop: 5 }}>Tap to Select Image</Text></View>}
             </TouchableOpacity>
-
-            <Text style={styles.label}>Document Name</Text>
-            <TextInput style={styles.input} placeholder="e.g. Aadhaar Card" value={title} onChangeText={setTitle} />
-
+            <Text style={styles.label}>Name</Text>
+            <TextInput style={styles.input} placeholder="e.g. Aadhaar" value={title} onChangeText={setTitle} />
             <Text style={styles.label}>Category</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-              {CATEGORIES.map(c => (
+              {CATEGORIES.DOCS.map(c => (
                 <TouchableOpacity key={c} style={[styles.chip, category === c && styles.chipActive]} onPress={() => setCategory(c)}>
                   <Text style={[styles.chipText, category === c && styles.chipTextActive]}>{c}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
-
-            <Text style={styles.label}>Expiry Date (Optional)</Text>
+            <Text style={styles.label}>Expiry (Optional)</Text>
             <TextInput style={styles.input} placeholder="YYYY-MM-DD" value={expiry} onChangeText={setExpiry} />
-
             <View style={styles.row}>
-              <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.btnCancel}><Text style={{color: 'red'}}>Cancel</Text></TouchableOpacity>
-              <TouchableOpacity onPress={handleSave} style={styles.btnSave}><Text style={{color:'#fff'}}>Secure Save</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.btnCancel}><Text>Cancel</Text></TouchableOpacity>
+              <TouchableOpacity onPress={handleSave} style={styles.btnSave}><Text style={{color:'#fff'}}>Save</Text></TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* 5. FULL SCREEN IMAGE VIEWER MODAL (NEW) */}
+      {/* VIEWER MODAL */}
       <Modal visible={viewerVisible} animationType="fade" onRequestClose={() => setViewerVisible(false)}>
         <View style={styles.viewerContainer}>
           <TouchableOpacity style={styles.closeBtn} onPress={() => setViewerVisible(false)}>
@@ -223,50 +176,42 @@ export default function VaultScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f7fa', paddingTop: 50 },
+  container: { flex: 1, backgroundColor: colors.background, paddingTop: 50 },
   header: { paddingHorizontal: 20, marginBottom: 10 },
-  headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#333', marginBottom: 15 },
-  
-  scoreBox: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 12, padding: 15, elevation: 2 },
-  scoreLeft: { borderRightWidth: 1, borderRightColor: '#eee', paddingRight: 20, marginRight: 20 },
-  scoreLabel: { fontSize: 12, color: '#888' },
-  scoreValue: { fontSize: 28, fontWeight: 'bold', color: '#2f95dc' },
+  headerTitle: { fontSize: 24, fontWeight: 'bold', color: colors.text, marginBottom: 15 },
+  scoreBox: { flexDirection: 'row', backgroundColor: colors.cardBg, borderRadius: 12, padding: 15, elevation: 2 },
+  scoreLeft: { borderRightWidth: 1, borderRightColor: colors.border, paddingRight: 20, marginRight: 20 },
+  scoreLabel: { fontSize: 12, color: colors.subText },
+  scoreValue: { fontSize: 28, fontWeight: 'bold', color: colors.primary },
   scoreRight: { justifyContent: 'center' },
-  warningText: { color: '#c0392b', fontWeight: '600' },
-  safeText: { color: '#27ae60', fontWeight: '600' },
-  riskText: { fontSize: 12, color: '#f39c12', marginTop: 4 },
-
-  card: { flexDirection: 'row', backgroundColor: '#fff', padding: 10, borderRadius: 12, marginBottom: 10, alignItems: 'center', elevation: 1 },
-  thumbnail: { width: 50, height: 50, borderRadius: 8, backgroundColor: '#eee', marginRight: 15 },
+  warningText: { color: colors.danger, fontWeight: '600' },
+  safeText: { color: colors.success, fontWeight: '600' },
+  riskText: { fontSize: 12, color: colors.warning, marginTop: 4 },
+  card: { flexDirection: 'row', backgroundColor: colors.cardBg, padding: 10, borderRadius: 12, marginBottom: 10, alignItems: 'center', elevation: 1 },
+  thumbnail: { width: 50, height: 50, borderRadius: 8, backgroundColor: colors.border, marginRight: 15 },
   cardContent: { flex: 1 },
-  cardTitle: { fontSize: 16, fontWeight: '600', color: '#333' },
-  cardSub: { fontSize: 12, color: '#888' },
+  cardTitle: { fontSize: 16, fontWeight: '600', color: colors.text },
+  cardSub: { fontSize: 12, color: colors.subText },
   expiry: { fontSize: 10, marginTop: 4, fontWeight: 'bold' },
-
   empty: { alignItems: 'center', marginTop: 50 },
-  emptyText: { fontSize: 18, fontWeight: 'bold', color: '#aaa', marginTop: 10 },
-  emptySub: { fontSize: 14, color: '#ccc' },
-
-  fab: { position: 'absolute', bottom: 20, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: '#2f95dc', justifyContent: 'center', alignItems: 'center', elevation: 5 },
-
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { width: '85%', backgroundColor: '#fff', borderRadius: 16, padding: 25, elevation: 5 },
+  emptyText: { fontSize: 18, fontWeight: 'bold', color: colors.placeholder, marginTop: 10 },
+  emptySub: { fontSize: 14, color: colors.placeholder },
+  fab: { position: 'absolute', bottom: 20, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center', elevation: 5 },
+  modalOverlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', alignItems: 'center' },
+  modalContent: { width: '85%', backgroundColor: colors.cardBg, borderRadius: 16, padding: 25, elevation: 5 },
   modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 5, textAlign: 'center' },
-  digitalNote: { fontSize: 12, color: '#888', textAlign: 'center', marginBottom: 15, fontStyle: 'italic' },
-  
-  imagePicker: { height: 150, backgroundColor: '#f0f0f0', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 15, overflow: 'hidden' },
-  input: { borderWidth: 1, borderColor: '#eee', borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 15, backgroundColor: '#fafafa' },
-  label: { fontSize: 12, color: '#888', marginBottom: 8, fontWeight: '600' },
+  digitalNote: { fontSize: 12, color: colors.subText, textAlign: 'center', marginBottom: 15, fontStyle: 'italic' },
+  imagePicker: { height: 150, backgroundColor: colors.background, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 15, overflow: 'hidden' },
+  input: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 15, backgroundColor: colors.background },
+  label: { fontSize: 12, color: colors.subText, marginBottom: 8, fontWeight: '600' },
   chipScroll: { flexDirection: 'row', marginBottom: 15, height: 40 },
-  chip: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, backgroundColor: '#f0f0f0', marginRight: 10 },
-  chipActive: { backgroundColor: '#2f95dc' },
-  chipText: { fontSize: 12, color: '#555' },
-  chipTextActive: { color: '#fff', fontWeight: 'bold' },
+  chip: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, backgroundColor: colors.background, marginRight: 10 },
+  chipActive: { backgroundColor: colors.primary },
+  chipText: { fontSize: 12, color: colors.subText },
+  chipTextActive: { color: colors.white, fontWeight: 'bold' },
   row: { flexDirection: 'row', gap: 10, marginTop: 10 },
   btnCancel: { padding: 10, flex: 1, alignItems: 'center' },
-  btnSave: { backgroundColor: '#2f95dc', padding: 10, borderRadius: 8, flex: 1, alignItems: 'center' },
-
-  // FULL SCREEN VIEWER STYLES
+  btnSave: { backgroundColor: colors.primary, padding: 10, borderRadius: 8, flex: 1, alignItems: 'center' },
   viewerContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center' },
   fullImage: { width: SCREEN_WIDTH, height: SCREEN_HEIGHT * 0.7 },
   closeBtn: { position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 10 },
