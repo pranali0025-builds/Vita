@@ -1,13 +1,14 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
+import { Platform } from 'react-native'; // Import Platform to tweak Android vs iOS
 
 // Import Screens
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
 import TrackerScreen from '../screens/tracker/TrackerScreen';
 import ReportsScreen from '../screens/reports/ReportsScreen';
 import VaultScreen from '../screens/vault/VaultScreen';
-import GoalsScreen from '../screens/goals/GoalsScreen'; // <--- NEW IMPORT
+import GoalsScreen from '../screens/goals/GoalsScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -18,8 +19,12 @@ export default function AppNavigator() {
         headerShown: false,
         tabBarActiveTintColor: '#2f95dc',
         tabBarInactiveTintColor: 'gray',
-        // Add a little padding for the 5-tab layout
-        tabBarStyle: { height: 60, paddingBottom: 5 },
+        // TWEAKED STYLES FOR SAFE AREA
+        tabBarStyle: { 
+          height: Platform.OS === 'android' ? 70 : 85, // Taller bar for Android buttons
+          paddingBottom: Platform.OS === 'android' ? 10 : 30, // Push icons up away from system bar
+          paddingTop: 10
+        },
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: keyof typeof Ionicons.glyphMap = 'home';
 
@@ -28,7 +33,7 @@ export default function AppNavigator() {
           } else if (route.name === 'Tracker') {
             iconName = focused ? 'wallet' : 'wallet-outline';
           } else if (route.name === 'Goals') {
-            iconName = focused ? 'trophy' : 'trophy-outline'; // <--- NEW ICON
+            iconName = focused ? 'trophy' : 'trophy-outline';
           } else if (route.name === 'Reports') {
             iconName = focused ? 'bar-chart' : 'bar-chart-outline';
           } else if (route.name === 'Vault') {

@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { View, Text, ActivityIndicator } from 'react-native';
-import { StatusBar } from 'expo-status-bar'; // <--- NEW IMPORT
+import { StatusBar } from 'expo-status-bar';
+// IMPORT SAFE AREA PROVIDER
+import { SafeAreaProvider } from 'react-native-safe-area-context'; 
+
 import { initDatabase, checkSession } from './src/services/database';
 import AppNavigator from './src/navigation/AppNavigator';
 import { AuthScreen } from './src/screens/auth/AuthScreens';
@@ -48,16 +51,18 @@ export default function App() {
   }
 
   return (
-    <AuthContext.Provider value={authContext}>
-      {/* FORCE DARK STATUS BAR (Black text on light background) */}
-      <StatusBar style="dark" />
-      <NavigationContainer>
-        {isAuthenticated ? (
-          <AppNavigator />
-        ) : (
-          <AuthScreen onLoginSuccess={() => setIsAuthenticated(true)} />
-        )}
-      </NavigationContainer>
-    </AuthContext.Provider>
+    // WRAP EVERYTHING IN SAFE AREA PROVIDER
+    <SafeAreaProvider>
+      <AuthContext.Provider value={authContext}>
+        <StatusBar style="dark" />
+        <NavigationContainer>
+          {isAuthenticated ? (
+            <AppNavigator />
+          ) : (
+            <AuthScreen onLoginSuccess={() => setIsAuthenticated(true)} />
+          )}
+        </NavigationContainer>
+      </AuthContext.Provider>
+    </SafeAreaProvider>
   );
 }
