@@ -30,6 +30,7 @@ export const initDatabase = async (): Promise<SQLite.SQLiteDatabase> => {
     await db.runAsync(`CREATE TABLE IF NOT EXISTS documents (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, category TEXT, uri TEXT, expiry_date TEXT, is_important INTEGER DEFAULT 0);`, []);
     await db.runAsync(`CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, category TEXT, target_date TEXT, progress INTEGER DEFAULT 0, status TEXT DEFAULT 'Not Started', notes TEXT);`, []);
 
+    // Migrations
     try { await db.runAsync("ALTER TABLE user_profile ADD COLUMN email TEXT;", []); } catch (e) {}
     try { await db.runAsync("ALTER TABLE user_profile ADD COLUMN password TEXT;", []); } catch (e) {}
     try { await db.runAsync("ALTER TABLE user_profile ADD COLUMN is_logged_in INTEGER DEFAULT 0;", []); } catch (e) {}
@@ -80,7 +81,6 @@ export const logoutUser = async () => { const database = await getDB(); await da
 export const checkSession = async (): Promise<boolean> => { const database = await getDB(); const res = await database.getAllAsync<{ is_logged_in: number }>('SELECT is_logged_in FROM user_profile WHERE id = 1', []); return res.length > 0 && res[0].is_logged_in === 1; };
 export const getUserName = async (): Promise<string> => { const database = await getDB(); const res = await database.getAllAsync<{ name: string }>('SELECT name FROM user_profile WHERE id = 1', []); return res.length > 0 ? res[0].name : "User"; };
 
-// NEW: Fetch full details for Settings
 export const getUserDetails = async () => {
   const database = await getDB();
   const res = await database.getAllAsync<{ name: string, email: string, is_premium: number }>('SELECT name, email, is_premium FROM user_profile WHERE id = 1', []);
@@ -90,7 +90,7 @@ export const getUserDetails = async () => {
 export const getPremiumStatus = async (): Promise<boolean> => { const database = await getDB(); const res = await database.getAllAsync<{ is_premium: number }>('SELECT is_premium FROM user_profile WHERE id = 1', []); return res.length > 0 && res[0].is_premium === 1; };
 export const setPremiumStatus = async (status: boolean) => { const database = await getDB(); const val = status ? 1 : 0; await database.runAsync('UPDATE user_profile SET is_premium = ? WHERE id = 1', [val]); };
 
-// --- 4. CORE FUNCTIONS (Compact) ---
+// --- 4. MONEY FUNCTIONS ---
 export const addExpense = async (amount: number, category: string, date: string, note: string, paymentType: string) => { const database = await getDB(); await database.runAsync(`INSERT INTO expenses (amount, category, date, note, payment_type) VALUES (?, ?, ?, ?, ?)`, [amount, category, date, note, paymentType]); };
 export const getExpensesByMonth = async (monthStr: string) => { const database = await getDB(); return await database.getAllAsync<Expense>(`SELECT * FROM expenses WHERE date LIKE ? ORDER BY date DESC`, [`${monthStr}%`]); };
 export const deleteExpense = async (id: number) => { const database = await getDB(); await database.runAsync('DELETE FROM expenses WHERE id = ?', [id]); };
@@ -109,6 +109,8 @@ export const getFinancialReport = async (monthStr: string): Promise<FinancialRep
   if (salary > 0 && totalSpent > (salary * 0.85)) { insights.push(`🔥 High Spending (>85% of income).`); status = 'Critical'; }
   return { summary, status, insights };
 };
+
+// --- 5. TASK & ENERGY FUNCTIONS ---
 export const addTask = async (title: string, priority: string, effort: number, category: string, date: string) => { const database = await getDB(); await database.runAsync(`INSERT INTO tasks (title, priority, estimated_effort, category, date, is_completed) VALUES (?, ?, ?, ?, ?, 0)`, [title, priority, effort, category, date]); };
 export const getTasksByDate = async (date: string): Promise<Task[]> => { const database = await getDB(); return await database.getAllAsync<Task>(`SELECT * FROM tasks WHERE date = ? ORDER BY is_completed ASC, priority DESC`, [date]); };
 export const toggleTaskCompletion = async (id: number, currentStatus: number) => { const database = await getDB(); const newStatus = currentStatus === 1 ? 0 : 1; await database.runAsync('UPDATE tasks SET is_completed = ? WHERE id = ?', [newStatus, id]); };
@@ -122,6 +124,15 @@ export const getDailyLoad = async (date: string): Promise<DailyLoad> => {
   const completionRate = tasks.length > 0 ? (tasks.filter(t => t.is_completed).length / tasks.length) * 100 : 0;
   return { totalEffort, completedEffort, taskCount: tasks.length, loadLevel, completionRate, statusMessage };
 };
+// Energy Logging
+export const logDailyEnergy = async (energy: number, date: string) => {
+  const database = await getDB();
+  const existing = await database.getAllAsync('SELECT * FROM daily_logs WHERE date = ?', [date]);
+  if (existing.length > 0) { await database.runAsync('UPDATE daily_logs SET energy_level = ? WHERE date = ?', [energy, date]); } else { await database.runAsync('INSERT INTO daily_logs (energy_level, date) VALUES (?, ?)', [energy, date]); }
+};
+export const getDailyEnergy = async (date: string): Promise<number> => { const database = await getDB(); const res = await database.getAllAsync<{ energy_level: number }>('SELECT energy_level FROM daily_logs WHERE date = ?', [date]); return res.length > 0 ? res[0].energy_level : 5; };
+
+// --- 6. DOCUMENT & GOAL FUNCTIONS ---
 export const addDocument = async (title: string, category: string, uri: string, expiry: string | null) => { const database = await getDB(); await database.runAsync(`INSERT INTO documents (title, category, uri, expiry_date, is_important) VALUES (?, ?, ?, ?, 0)`, [title, category, uri, expiry]); };
 export const getDocuments = async (): Promise<Document[]> => { const database = await getDB(); return await database.getAllAsync<Document>(`SELECT * FROM documents ORDER BY category ASC`, []); };
 export const deleteDocument = async (id: number) => { const database = await getDB(); await database.runAsync('DELETE FROM documents WHERE id = ?', [id]); };
@@ -133,6 +144,13 @@ export const calculatePreparednessScore = async (): Promise<PreparednessReport> 
   docs.forEach(d => { if (d.expiry_date) { if (d.expiry_date < today) expiredCount++; else { const exp = new Date(d.expiry_date); const now = new Date(); const diffTime = Math.abs(exp.getTime() - now.getTime()); const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); if (diffDays <= 30) expiringSoonCount++; } } });
   return { score, missingEssentials: missing, expiredCount, expiringSoonCount };
 };
+export const addGoal = async (title: string, category: string, targetDate: string, notes: string) => { const database = await getDB(); await database.runAsync(`INSERT INTO goals (title, category, target_date, progress, status, notes) VALUES (?, ?, ?, 0, 'Not Started', ?)`, [title, category, targetDate, notes]); };
+export const getGoals = async (): Promise<Goal[]> => { const database = await getDB(); return await database.getAllAsync<Goal>(`SELECT * FROM goals ORDER BY target_date ASC`, []); };
+export const updateGoalProgress = async (id: number, progress: number) => { const database = await getDB(); let status = 'In Progress'; if (progress === 0) status = 'Not Started'; if (progress >= 100) { progress = 100; status = 'Completed'; } await database.runAsync('UPDATE goals SET progress = ?, status = ? WHERE id = ?', [progress, status, id]); };
+export const deleteGoal = async (id: number) => { const database = await getDB(); await database.runAsync('DELETE FROM goals WHERE id = ?', [id]); };
+export const detectGoalRisks = async (): Promise<string[]> => { const goals = await getGoals(); const risks: string[] = []; const today = new Date().toISOString().slice(0, 10); goals.forEach(g => { if (g.status !== 'Completed' && g.target_date < today) { risks.push(`⏰ Overdue: "${g.title}" was due on ${g.target_date}.`); } }); return risks; };
+
+// --- 7. AGGREGATION & REPORTING ---
 export const getLoadHistory = async (days: number = 7): Promise<LoadPoint[]> => {
   const history: LoadPoint[] = []; const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   for (let i = days - 1; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); const dateStr = d.toISOString().slice(0, 10); const load = await getDailyLoad(dateStr); history.push({ date: dateStr, label: i === 0 ? 'Today' : daysOfWeek[d.getDay()], effort: load.totalEffort }); }
@@ -144,40 +162,11 @@ export const getWeeklyTaskStats = async () => {
   const avgLoad = daysWithData > 0 ? Math.round(totalMinutes / daysWithData) : 0; const avgCompletionRate = daysWithData > 0 ? Math.round((totalCompletionSum / daysWithData) * 100) : 0;
   return { heavyDays, avgLoad, daysWithData, avgCompletionRate };
 };
-export const detectBurnoutLoop = async (): Promise<string[]> => {
-  const stats = await getWeeklyTaskStats(); const insights: string[] = [];
-  if (stats.daysWithData >= 5) insights.push("✅ High Consistency: You tracked tasks for 5+ days this week.");
-  if (stats.heavyDays >= 3) insights.push("🛑 Burnout Pattern: 3+ heavy load days this week.");
-  if (stats.avgLoad > 240) insights.push("⚠️ High Average Load: Your baseline is > 4 hours/day.");
-  if (stats.avgCompletionRate < 50 && stats.daysWithData > 2) insights.push("📉 Low Completion: You are planning more than you finish.");
-  return insights;
-};
-export const detectSpendingInstability = async (): Promise<number> => {
-  const currentMonth = new Date().toISOString().slice(0, 7); const stats = await getCategoryStats(currentMonth); const salary = await getMonthlySalary();
-  if (!stats || stats.length === 0) return 0; const totalSpent = stats.reduce((acc, curr) => acc + curr.total, 0); let instability = 0;
-  if (salary > 0 && totalSpent > salary) instability += 50; else if (salary > 0 && totalSpent > (salary * 0.9)) instability += 30;
-  const topCat = stats[0]; if (topCat && topCat.percentage > 60) instability += 20;
-  return Math.min(instability, 100);
-};
-export const calculateStabilityScore = async (): Promise<StabilityMetrics> => {
-  const instability = await detectSpendingInstability(); const moneyScore = Math.max(0, 100 - instability); const history = await getLoadHistory(7);
-  let consistentDays = 0; let heavyDays = 0; history.forEach(day => { if (day.effort > 0) consistentDays++; if (day.effort > 300) heavyDays++; });
-  let taskScore = 50; if (consistentDays >= 5) taskScore += 30; else if (consistentDays >= 3) taskScore += 10; if (heavyDays >= 3) taskScore -= 30;
-  taskScore = Math.max(0, Math.min(100, taskScore)); const totalScore = Math.round((moneyScore * 0.5) + (taskScore * 0.5));
-  let label: StabilityMetrics['label'] = 'Good'; if (totalScore >= 80) label = 'Excellent'; else if (totalScore < 50) label = 'Unstable'; else if (totalScore < 70) label = 'Fair';
-  return { score: totalScore, label, moneyScore, taskScore };
-};
-export const addGoal = async (title: string, category: string, targetDate: string, notes: string) => { const database = await getDB(); await database.runAsync(`INSERT INTO goals (title, category, target_date, progress, status, notes) VALUES (?, ?, ?, 0, 'Not Started', ?)`, [title, category, targetDate, notes]); };
-export const getGoals = async (): Promise<Goal[]> => { const database = await getDB(); return await database.getAllAsync<Goal>(`SELECT * FROM goals ORDER BY target_date ASC`, []); };
-export const updateGoalProgress = async (id: number, progress: number) => { const database = await getDB(); let status = 'In Progress'; if (progress === 0) status = 'Not Started'; if (progress >= 100) { progress = 100; status = 'Completed'; } await database.runAsync('UPDATE goals SET progress = ?, status = ? WHERE id = ?', [progress, status, id]); };
-export const deleteGoal = async (id: number) => { const database = await getDB(); await database.runAsync('DELETE FROM goals WHERE id = ?', [id]); };
-export const detectGoalRisks = async (): Promise<string[]> => {
-  const goals = await getGoals(); const risks: string[] = []; const today = new Date().toISOString().slice(0, 10);
-  goals.forEach(g => { if (g.status !== 'Completed' && g.target_date < today) { risks.push(`⏰ Overdue: "${g.title}" was due on ${g.target_date}.`); } });
-  return risks;
-};
+export const detectBurnoutLoop = async (): Promise<string[]> => { const stats = await getWeeklyTaskStats(); const insights: string[] = []; if (stats.daysWithData >= 5) insights.push("✅ High Consistency: You tracked tasks for 5+ days this week."); if (stats.heavyDays >= 3) insights.push("🛑 Burnout Pattern: 3+ heavy load days this week."); if (stats.avgLoad > 240) insights.push("⚠️ High Average Load: Your baseline is > 4 hours/day."); if (stats.avgCompletionRate < 50 && stats.daysWithData > 2) insights.push("📉 Low Completion: You are planning more than you finish."); return insights; };
+export const detectSpendingInstability = async (): Promise<number> => { const currentMonth = new Date().toISOString().slice(0, 7); const stats = await getCategoryStats(currentMonth); const salary = await getMonthlySalary(); if (!stats || stats.length === 0) return 0; const totalSpent = stats.reduce((acc, curr) => acc + curr.total, 0); let instability = 0; if (salary > 0 && totalSpent > salary) instability += 50; else if (salary > 0 && totalSpent > (salary * 0.9)) instability += 30; const topCat = stats[0]; if (topCat && topCat.percentage > 60) instability += 20; return Math.min(instability, 100); };
+export const calculateStabilityScore = async (): Promise<StabilityMetrics> => { const instability = await detectSpendingInstability(); const moneyScore = Math.max(0, 100 - instability); const history = await getLoadHistory(7); let consistentDays = 0; let heavyDays = 0; history.forEach(day => { if (day.effort > 0) consistentDays++; if (day.effort > 300) heavyDays++; }); let taskScore = 50; if (consistentDays >= 5) taskScore += 30; else if (consistentDays >= 3) taskScore += 10; if (heavyDays >= 3) taskScore -= 30; taskScore = Math.max(0, Math.min(100, taskScore)); const totalScore = Math.round((moneyScore * 0.5) + (taskScore * 0.5)); let label: StabilityMetrics['label'] = 'Good'; if (totalScore >= 80) label = 'Excellent'; else if (totalScore < 50) label = 'Unstable'; else if (totalScore < 70) label = 'Fair'; return { score: totalScore, label, moneyScore, taskScore }; };
 
-// --- RESET & DEMO ---
+// --- 8. RESET & DEMO ---
 export const clearAllData = async () => { const database = await getDB(); await database.execAsync(`DELETE FROM expenses; DELETE FROM subscriptions; DELETE FROM user_profile; DELETE FROM tasks; DELETE FROM documents; DELETE FROM goals;`); };
 export const seedDemoData = async () => {
   const database = await getDB();

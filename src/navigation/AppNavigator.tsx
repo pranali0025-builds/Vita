@@ -1,7 +1,9 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform } from 'react-native'; // Import Platform to tweak Android vs iOS
+import { Platform, View } from 'react-native';
+// IMPORT SAFE AREA HOOK
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Import Screens
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
@@ -13,18 +15,32 @@ import GoalsScreen from '../screens/goals/GoalsScreen';
 const Tab = createBottomTabNavigator();
 
 export default function AppNavigator() {
+  // Get dynamic safe area insets (top, bottom, left, right)
+  const insets = useSafeAreaInsets();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: '#2f95dc',
         tabBarInactiveTintColor: 'gray',
-        // TWEAKED STYLES FOR SAFE AREA
+        
+        // DYNAMIC STYLING
         tabBarStyle: { 
-          height: Platform.OS === 'android' ? 70 : 85, // Taller bar for Android buttons
-          paddingBottom: Platform.OS === 'android' ? 10 : 30, // Push icons up away from system bar
-          paddingTop: 10
+          // Base height (60) + whatever space the system buttons need
+          height: 60 + insets.bottom, 
+          // Push icons up by the system button height + a little buffer
+          paddingBottom: insets.bottom > 0 ? insets.bottom : 10, 
+          paddingTop: 10,
+          backgroundColor: '#fff',
+          borderTopWidth: 0,
+          elevation: 10, // Shadow for Android
+          shadowColor: '#000', // Shadow for iOS
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
         },
+        
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: keyof typeof Ionicons.glyphMap = 'home';
 
